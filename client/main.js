@@ -101,7 +101,10 @@ const S = {
   err: { x: 0, z: 0 }, // 서버 보정으로 생긴 차이 (조금씩 줄인다)
   cd: 0,
   lockN: 0, // 찌르는 중: 남은 멈춤 (입력 수, 서버와 똑같이 센다)
-  rs: 0,
+  spec: [], // 관전: 살아 있는 플레이어 [id, 이름, 잡은 수] (잡힌 뒤에만 서버가 알려 준다)
+  specId: null,
+  spectating: false,
+  aliveN: 0,
   killerId: null,
   killerName: '',
   deadAt: 0,
@@ -131,6 +134,9 @@ function closeLink() {
 }
 
 function resetMatch() {
+  $('hud').classList.remove('spectating', 'out');
+  $('spec').hidden = true;
+  input.lookOnly = false;
   S.snaps = [];
   S.offset = null;
   S.myId = null;
@@ -143,6 +149,10 @@ function resetMatch() {
   S.ended = false;
   S.board = [];
   S.killerId = null;
+  S.spec = [];
+  S.specId = null;
+  S.spectating = false;
+  S.deadAt = 0;
   S.myAct = 0;
   S.camSnap = true;
   vis.clear();
@@ -271,6 +281,7 @@ function onMessage(m) {
   const prevPhase = S.phase;
   S.phase = m.ph;
   S.tl = m.tl;
+  if (m.al !== undefined) S.aliveN = m.al;
   if (prevPhase !== 'play' && S.phase === 'play') S.pending = [];
   if (m.b) {
     S.board = m.b;
@@ -314,7 +325,7 @@ function onYou(y) {
     if (Math.hypot(S.err.x, S.err.z) > 2) S.err = { x: 0, z: 0 };
   }
   S.body = y.body ?? null;
-  S.rs = y.rs ?? 0;
+  S.spec = y.spec || [];
   S.cd = y.cd ?? 0;
 }
 
@@ -338,12 +349,8 @@ function onEvent(ev) {
       S.killerName = ev.by;
       $('deadBy').innerHTML = `<b>${esc(ev.by)}</b> 에게 찔렸어요`;
       $('dead').hidden = false;
+      S.specId = ev.kid; // 관전은 나를 찌른 닭부터
       buzz([120, 60, 120]);
-      break;
-    case 'spawn':
-      $('dead').hidden = true;
-      S.killerId = null;
-      toast('문 앞에서 다시 태어났어요. 얼른 무리에 섞이세요!', '');
       break;
     case 'go':
       bigText('시작!', true);
@@ -489,6 +496,7 @@ function render(dt, now) {
 
   chickens.begin();
   let killerPos = null;
+  let specPos = null;
   for (const [id, e] of ents) {
     let v = vis.get(id);
     let { x, z, yaw, code } = e;
@@ -546,7 +554,8 @@ function render(dt, now) {
       fx.meRing.position.set(x, 0.05, z);
       fx.meRing.material.opacity = 0.45 + Math.sin(now * 3) * 0.15;
     }
-    if (id === S.killerId && !S.myId && anim !== ANIM.DEAD) killerPos = { x, z, head: head?.clone() };
+    if (id === S.killerId && !S.myId && !S.spectating && anim !== ANIM.DEAD) killerPos = { x, z, head: head?.clone() };
+    if (S.spectating && id === S.specId && anim !== ANIM.DEAD) specPos = { x, z };
   }
   // 사라진 닭: 쓰러진 닭이 치워질 때 연기
   for (const [id, v] of vis) {
@@ -554,7 +563,12 @@ function render(dt, now) {
     if (v.anim === ANIM.DEAD) for (let i = 0; i < 4; i++) fx.puff(v.px + (Math.random() - 0.5) * 0.8, 0.3, v.pz + (Math.random() - 0.5) * 0.8, 0.9);
     vis.delete(id);
   }
-  if (!(S.myId && S.pred)) fx.meRing.visible = false;
+  if (!(S.myId && S.pred)) fx.meRing.visible = !!specPos;
+  if (specPos) {
+    // 관전 중인 닭 발밑 고리
+    fx.meRing.position.set(specPos.x, 0.05, specPos.z);
+    fx.meRing.material.opacity = 0.45 + Math.sin(now * 3) * 0.15;
+  }
   chickens.end();
 
   // 범인 표시 (잡힌 동안)
@@ -573,13 +587,13 @@ function render(dt, now) {
     if (e) sfx.cluck(Math.hypot(e.x - lx, e.z - lz));
   }
 
-  updateCamera(dt, now, ents, killerPos);
+  updateCamera(dt, now, ents, killerPos, specPos);
   world.update(dt);
   fx.update(dt, now);
   renderer.render(scene, camera);
 }
 
-function updateCamera(dt, now, ents, killerPos) {
+function updateCamera(dt, now, ents, killerPos, specPos) {
   let tx;
   let tz;
   let dist = 5.9;
@@ -587,6 +601,10 @@ function updateCamera(dt, now, ents, killerPos) {
   if (S.mode === 'game' && S.myId && S.pred) {
     tx = myPos.x;
     tz = myPos.z;
+  } else if (S.mode === 'game' && specPos) {
+    // 관전: 고른 플레이어의 닭을 따라간다 (둘러보기는 화면 끌기)
+    tx = specPos.x;
+    tz = specPos.z;
   } else if (S.mode === 'game' && S.body && ents.get(S.body)) {
     const b = ents.get(S.body);
     tx = b.x;
@@ -694,21 +712,24 @@ function updateHud(dt, now) {
     $('timer').classList.toggle('hurry', S.phase === 'play' && S.tl < 30);
   }
   const me = S.board.find((b) => b.pid === S.pid);
-  if (me) $('myScore').innerHTML = `⭐ <b>${me.s}</b><small>🔪${me.k} · 🐔${me.a} · 💀${me.d}</small>`;
+  if (me) $('myScore').innerHTML = `⭐ <b>${me.s}</b><small>🐔${me.a}</small>`;
+  $('alive').innerHTML = `👤 <b>${S.aliveN}</b><small>남음</small>`;
+  updateSpectate(now);
   // 찌르기: 멈춰 있는 시간(그동안 다시 못 찌른다), AI 를 찔렀으면 더 길게
   const left = Math.max(S.cd, S.lockN * DT);
   const total = S.cd > 0.05 ? CFG.PENALTY_CD : CFG.STAB_TIME;
   $('cdMask').style.setProperty('--p', left > 0.05 ? `${Math.min(1, left / total) * 360}deg` : '0deg');
   $('stab').classList.toggle('cool', left > 0.05);
-  if (!$('dead').hidden) $('respawn').textContent = S.rs > 0 ? `${S.rs.toFixed(1)}초 뒤 다시 태어나요` : '';
   $('pad').classList.toggle('off', !(S.myId && S.phase === 'play'));
+  $('hud').classList.toggle('out', !S.myId && S.phase === 'play' && S.snaps.length > 0); // 잡혔다
 }
 
 function renderBoard(el, rows) {
   el.innerHTML = rows
     .map((r, i) => {
       const medal = ['🥇', '🥈', '🥉'][i] || `<em>${i + 1}</em>`;
-      return `<div class="row${r.pid === S.pid ? ' me' : ''}"><span class="rank">${medal}</span><span class="nm" translate="no">${esc(r.n)}</span><span class="pt">${r.s}</span><span class="st">${r.k}</span><span class="st">${r.a}</span><span class="st">${r.d}</span></div>`;
+      const state = r.al ? '<b class="alive">생존</b>' : '💀';
+      return `<div class="row${r.pid === S.pid ? ' me' : ''}${r.al ? '' : ' out'}"><span class="rank">${medal}</span><span class="nm" translate="no">${esc(r.n)}</span><span class="pt">${r.s}</span><span class="st">${r.a}</span><span class="st">${state}</span></div>`;
     })
     .join('');
 }
@@ -717,9 +738,10 @@ function showResult(rank) {
   S.ended = true;
   $('board').hidden = true;
   const i = rank.findIndex((r) => r.pid === S.pid);
-  const title = i === 0 ? '🏆 우승!' : i > 0 ? `${i + 1}등` : '판 끝';
+  const title = i === 0 ? '🏆 최후의 닭!' : i > 0 ? `${i + 1}등` : '판 끝';
   $('resultTitle').textContent = title;
-  $('resultSub').textContent = i === 0 ? '최고의 연기파 닭이에요' : '다음 판에는 더 감쪽같이!';
+  const survivors = rank.filter((r) => r.al).length;
+  $('resultSub').textContent = i === 0 ? (survivors === 1 ? '끝까지 살아남았어요' : '살아남은 닭 중 가장 많이 잡았어요') : '다음 판에는 더 감쪽같이!';
   renderBoard($('resultList'), rank);
   $('againBtn').disabled = false;
   $('againBtn').textContent = '▶ 다시 하기';
@@ -727,6 +749,39 @@ function showResult(rank) {
   $('dead').hidden = true;
   if (i === 0) sfx.good();
 }
+
+// ───────────────────────── 관전 (잡힌 뒤) ─────────────────────────
+// 잡히면 2.5초 동안 쓰러진 내 닭과 범인을 보여 주고, 그 뒤 살아 있는 플레이어를 따라간다
+function updateSpectate(now) {
+  const on = S.mode === 'game' && !S.myId && S.spec.length > 0 && S.phase !== 'end' && now - S.deadAt > 2.5;
+  if (on !== S.spectating) {
+    S.spectating = on;
+    $('hud').classList.toggle('spectating', on);
+    input.lookOnly = on;
+    if (on) $('dead').hidden = true;
+  }
+  $('spec').hidden = !on;
+  if (!on) return;
+  if (!S.spec.some((p) => p[0] === S.specId)) {
+    // 보던 닭이 잡혔으면 남은 사람 중 첫 번째로
+    S.specId = S.spec[0][0];
+  }
+  const p = S.spec.find((q) => q[0] === S.specId);
+  $('specName').textContent = p[1];
+  $('specInfo').textContent = `🔪 ${p[2]} · ${S.spec.indexOf(p) + 1}/${S.spec.length}`;
+  $('specAgain').hidden = S.online;
+}
+function cycleSpec(d) {
+  if (!S.spectating || !S.spec.length) return;
+  sfx.click();
+  const i = Math.max(0, S.spec.findIndex((q) => q[0] === S.specId));
+  S.specId = S.spec[(i + d + S.spec.length) % S.spec.length][0];
+  S.camSnap = true;
+  updateSpectate(performance.now() / 1000);
+}
+$('specPrev').addEventListener('click', () => cycleSpec(-1));
+$('specNext').addEventListener('click', () => cycleSpec(1));
+$('specAgain').addEventListener('click', () => (sfx.click(), S.link?.send({ t: 'again' })));
 
 // ───────────────────────── 메뉴·시트 ─────────────────────────
 function openSheet(id) {
@@ -766,6 +821,7 @@ addEventListener('keydown', (e) => {
     $('board').hidden = false;
   }
   if (e.code === 'Escape') ($('confirm').hidden = !$('confirm').hidden);
+  if (S.spectating && (e.code === 'KeyA' || e.code === 'KeyD')) cycleSpec(e.code === 'KeyA' ? -1 : 1);
 });
 addEventListener('keyup', (e) => e.code === 'Tab' && S.mode === 'game' && ($('board').hidden = true));
 

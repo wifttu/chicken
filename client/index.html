@@ -29,12 +29,19 @@
         <button id="exitBtn" class="chip icon" aria-label="나가기">✕</button>
         <div id="timer" class="chip">3:00</div>
         <div id="myScore" class="chip">⭐ <b>0</b></div>
+        <div id="alive" class="chip" title="남은 플레이어">👤 <b>8</b></div>
         <button id="boardBtn" class="chip icon" aria-label="점수표">🏆</button>
       </div>
       <div id="feed" aria-live="polite"></div>
       <b id="big"></b>
       <div id="toast"></div>
-      <div id="dead" hidden><em>잡혔다!</em><span id="deadBy"></span><b id="respawn"></b></div>
+      <div id="dead" hidden><em>잡혔다!</em><span id="deadBy"></span><b id="deadNote">잠시 뒤 남은 플레이어를 관전해요</b></div>
+      <div id="spec" hidden>
+        <button id="specPrev" class="chip icon" aria-label="이전 플레이어">◀</button>
+        <div class="who"><small>👀 관전 중</small><b id="specName" translate="no"></b><small id="specInfo"></small></div>
+        <button id="specNext" class="chip icon" aria-label="다음 플레이어">▶</button>
+        <button id="specAgain" class="chip" hidden>▶ 새 판</button>
+      </div>
       <div id="hint" hidden>왼쪽을 눌러 걷고, 오른쪽을 끌어 둘러보세요 · PC: WASD, 마우스 끌기, Space 찌르기, Shift 달리기</div>
       <div id="stick"><div id="knob"></div></div>
       <div id="pad">
@@ -89,7 +96,8 @@
           <li><b>🐔 AI 를 찌르면</b>점수도 그대로, 아무 표시도 없어요. 다만 칼을 2.5초 동안 못 써요.</li>
           <li><b>💨 소동 틈에 빠져나가기</b>닭이 잡히면 근처 AI 닭들이 놀라 걸어서 흩어져요. 같이 걸어 나가면 섞일 수 있어요.</li>
           <li><b>🐔 사람처럼 서서 걷는 닭</b>모두 두 발로 걷고 오른손에 칼을 쥐고 있어요. 팔을 흔들며 걷고, 허리를 숙여 땅을 쪼고, 팔을 날개처럼 퍼덕여요.</li>
-          <li><b>🏆 3분 승부</b>잡혀도 3초 뒤 닭장·헛간 문 앞에서 다시 태어나요. 점수가 가장 높은 닭이 이겨요.</li>
+          <li><b>💀 데스매치</b>잡히면 다시 태어나지 않아요. 남은 플레이어를 관전해요. AI 닭도 잡히면 그대로 줄어들어요.</li>
+          <li><b>🏆 최후의 닭</b>마지막까지 살아남은 닭이 이겨요. 3분이 지나면 살아남은 닭 중 많이 잡은 닭이 1등이에요.</li>
         </ol>
         <table class="keys">
           <tr><th></th><th>모바일</th><th>PC</th></tr>
@@ -135,7 +143,7 @@
     <section id="board" class="sheet clear" hidden>
       <div class="panel">
         <h2>점수표</h2>
-        <div class="head row"><span class="rank"></span><span class="nm">이름</span><span class="pt">점수</span><span class="st">🔪 잡음</span><span class="st">🐔 AI</span><span class="st">💀 잡힘</span></div>
+        <div class="head row"><span class="rank"></span><span class="nm">이름</span><span class="pt">🔪 잡음</span><span class="st">🐔 AI</span><span class="st">상태</span></div>
         <div id="boardList" class="list"></div>
         <button data-close>닫기</button>
       </div>
@@ -145,7 +153,7 @@
       <div class="panel">
         <h2 id="resultTitle">판 끝</h2>
         <p id="resultSub" class="note"></p>
-        <div class="head row"><span class="rank"></span><span class="nm">이름</span><span class="pt">점수</span><span class="st">🔪 잡음</span><span class="st">🐔 AI</span><span class="st">💀 잡힘</span></div>
+        <div class="head row"><span class="rank"></span><span class="nm">이름</span><span class="pt">🔪 잡음</span><span class="st">🐔 AI</span><span class="st">상태</span></div>
         <div id="resultList" class="list"></div>
         <div class="row btns">
           <button id="againBtn" class="primary">▶ 다시 하기</button>

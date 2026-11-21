@@ -3,7 +3,7 @@
 // 비밀 지키기: 스냅샷에는 닭마다 [id, x, z, 방향, 동작] 만 실린다. AI 와 플레이어가 같은 꼴이고,
 // id 는 무작위이며 id 순으로 보내므로 만든 순서도 드러나지 않는다. 내가 누구인지만 따로 알려 준다.
 import { ACT, ANIM, CFG, STAB_TICKS } from '../shared/config.js';
-import { SPAWNS, blocked, randomOpen } from '../shared/map.js';
+import { randomOpen } from '../shared/map.js';
 import { stepChicken, speedOf } from '../shared/sim.js';
 import { mulberry32, range } from '../shared/rng.js';
 import { AiBrain } from './ai.js';
@@ -36,7 +36,7 @@ export class Game {
     this.round++;
     this.ents.clear();
     this.events = []; // 모두에게 (다음 스냅샷에 실린다)
-    this.aiQueue = []; // AI 가 다시 태어날 시각
+    this.finishT = 0; // 마지막 한 명이 남은 뒤 판이 끝날 때까지
     this.time = 0;
     this.phase = 'count';
     this.phaseT = CFG.COUNTDOWN;
@@ -45,7 +45,7 @@ export class Game {
     this.result = null;
     while (this.slots.length < this.opts.players) this.addBot();
     for (const s of this.slots) {
-      Object.assign(s, { score: 0, kills: 0, aiKills: 0, deaths: 0, ent: null, respawnT: 0, again: false, inputs: [] });
+      Object.assign(s, { score: 0, kills: 0, aiKills: 0, deaths: 0, deadAt: 0, ent: null, again: false, inputs: [] });
       s.inbox.push({ t: 'round', n: this.round });
     }
     // 처음에는 맵 곳곳에 흩어 놓는다. 만드는 순서를 섞어 둔다.
@@ -71,16 +71,25 @@ export class Game {
     this.events.push({ t: 'end', rank: this.result });
   }
 
-  // 점수표: 점수 → 잡은 수 → 적게 잡힌 순
+  isAlive(s) {
+    return !!this.ents.get(s.ent)?.alive;
+  }
+
+  get alivePlayers() {
+    return this.slots.filter((s) => this.isAlive(s)).length;
+  }
+
+  // 점수표 (데스매치): 살아남은 닭이 먼저(잡은 수 순), 잡힌 닭은 늦게 잡힐수록 위, 같으면 잡은 수
   board() {
-    return [...this.slots]
-      .sort((a, b) => b.score - a.score || b.kills - a.kills || a.deaths - b.deaths)
-      .map((s) => ({ pid: s.pid, n: s.name, s: s.score, k: s.kills, a: s.aiKills, d: s.deaths }));
+    const rows = this.slots.map((s) => ({ s, al: this.isAlive(s) }));
+    return rows
+      .sort((a, b) => b.al - a.al || (a.al ? 0 : b.s.deadAt - a.s.deadAt) || b.s.kills - a.s.kills)
+      .map(({ s, al }) => ({ pid: s.pid, n: s.name, s: s.score, k: s.kills, a: s.aiKills, d: s.deaths, al: al ? 1 : 0 }));
   }
 
   // ───────────── 자리 (사람/봇) ─────────────
   newSlot(name, bot) {
-    return { pid: this.nextPid++, name, bot, session: null, score: 0, kills: 0, aiKills: 0, deaths: 0, ent: null, respawnT: 0, inputs: [], ack: 0, inbox: [], again: false };
+    return { pid: this.nextPid++, name, bot, session: null, score: 0, kills: 0, aiKills: 0, deaths: 0, deadAt: 0, ent: null, inputs: [], ack: 0, inbox: [], again: false };
   }
 
   addBot() {
@@ -90,9 +99,9 @@ export class Game {
     return s;
   }
 
-  // 사람이 들어오면 봇 하나의 자리(지금 그 닭 그대로)를 넘겨받는다. 자리가 없으면 null.
+  // 사람이 들어오면 봇 하나의 자리(지금 그 닭 그대로)를 넘겨받는다. 살아 있는 봇을 먼저 고른다. 자리가 없으면 null.
   addHuman({ name, session }) {
-    const s = this.slots.find((x) => x.bot);
+    const s = this.slots.find((x) => x.bot && this.isAlive(x)) || this.slots.find((x) => x.bot);
     if (!s) return null;
     s.bot = null;
     s.session = session;
@@ -129,6 +138,8 @@ export class Game {
       s.inputs.push(inp);
       if (s.inputs.length > 12) s.inputs.splice(0, s.inputs.length - 12);
     } else if (m.t === 'again') {
+      // 혼자 하기는 잡혀서 관전 중일 때도 바로 새 판
+      if (!this.opts.autoRestart && this.phase === 'play' && !this.isAlive(s)) return this.newRound();
       if (this.phase !== 'end') return;
       s.again = true;
       const humans = this.slots.filter((x) => !x.bot);
@@ -170,21 +181,6 @@ export class Game {
     return e;
   }
 
-  // 문 앞에서 태어난다. 살아 있는 플레이어 근처의 문은 피한다.
-  spawnAtDoor(slot) {
-    const alivePlayers = [...this.ents.values()].filter((e) => e.alive && e.slot);
-    const free = SPAWNS.filter((p) => alivePlayers.every((e) => Math.hypot(e.x - p.x, e.z - p.z) > 7));
-    const list = free.length ? free : SPAWNS;
-    const p = list[Math.floor(this.rng() * list.length)];
-    for (let i = 0; i < 8; i++) {
-      const side = (this.rng() - 0.5) * 2;
-      const x = p.x + Math.cos(p.yaw) * side + Math.sin(p.yaw) * this.rng() * 0.8;
-      const z = p.z - Math.sin(p.yaw) * side + Math.cos(p.yaw) * this.rng() * 0.8;
-      if (!blocked(x, z)) return this.spawn(x, z, p.yaw, slot);
-    }
-    return this.spawn(p.x, p.z, p.yaw, slot);
-  }
-
   nearby(ent, r) {
     const out = [];
     for (const o of this.ents.values()) {
@@ -213,6 +209,10 @@ export class Game {
     } else if (this.phase === 'play') {
       this.timeLeft -= DT;
       if (this.timeLeft <= 0) this.endRound();
+      // 데스매치: 플레이어가 한 명만 남으면 잠깐 뒤 끝 (혼자 하는 시험판은 제외)
+      else if (this.finishT > 0) {
+        if ((this.finishT -= DT) <= 0) this.endRound();
+      } else if (this.slots.length >= 2 && this.alivePlayers <= 1) this.finishT = CFG.FINISH_DELAY;
     } else if (this.phase === 'end') {
       this.phaseT -= DT;
       if (this.phaseT <= 0 && this.opts.autoRestart) this.newRound();
@@ -230,13 +230,8 @@ export class Game {
     for (const s of this.slots) {
       const e = this.ents.get(s.ent);
       if (!e || !e.alive) {
+        // 잡힌 플레이어는 다시 태어나지 않는다 (관전)
         if (!s.bot) this.takeInputs(s, s.inputs.length);
-        if (play && s.respawnT > 0 && (s.respawnT -= dt) <= 0) {
-          const n = this.spawnAtDoor(s);
-          s.ent = n.id;
-          s.bot?.onSpawn(this);
-          s.inbox.push({ t: 'spawn' });
-        }
         continue;
       }
       if (s.bot) {
@@ -262,15 +257,9 @@ export class Game {
       }
     }
 
-    // 쓰러진 닭 치우기, AI 다시 태어나기
+    // 쓰러진 닭 치우기 (AI 도 플레이어도 다시 태어나지 않는다)
     for (const e of [...this.ents.values()]) {
       if (!e.alive && (e.deadT -= dt) <= 0) this.ents.delete(e.id);
-    }
-    for (let i = this.aiQueue.length - 1; i >= 0; i--) {
-      if (this.aiQueue[i] <= this.time) {
-        this.aiQueue.splice(i, 1);
-        this.spawnAtDoor(null);
-      }
     }
     this.updateSuspicion(dt);
   }
@@ -346,11 +335,10 @@ export class Game {
       ks.aiKills++;
       k.cd = CFG.PENALTY_CD;
       ks.inbox.push({ t: 'oops' });
-      this.aiQueue.push(this.time + range(this.rng, 3, 7));
     } else {
       const vs = v.slot;
       vs.deaths++;
-      vs.respawnT = CFG.RESPAWN;
+      vs.deadAt = this.time;
       vs.bot && (vs.bot.target = null);
       ks.kills++;
       ks.score++;
@@ -425,7 +413,8 @@ export class Game {
     } else {
       y.id = null;
       y.body = e ? e.id : null; // 쓰러진 내 닭 (카메라가 비춘다)
-      y.rs = +Math.max(0, s.respawnT).toFixed(2);
+      // 관전: 잡힌 사람에게만 살아 있는 플레이어의 닭을 알려 준다 [id, 이름, 잡은 수]
+      y.spec = this.slots.filter((o) => this.isAlive(o)).map((o) => [o.ent, o.name, o.kills]);
     }
     return y;
   }
@@ -439,10 +428,11 @@ export class Game {
     const e = this.entityList();
     const tl = this.phase === 'play' ? this.timeLeft : this.phaseT;
     const board = this.boardDirty || this.tick % 60 === 0 ? this.board() : null;
+    const al = this.alivePlayers; // 남은 플레이어 수 (모두에게)
     this.boardDirty = false;
     for (const s of this.slots) {
       if (!s.session) continue;
-      const msg = { t: 's', k: this.tick, ph: this.phase, tl: +tl.toFixed(2), e, y: this.youOf(s) };
+      const msg = { t: 's', k: this.tick, ph: this.phase, tl: +tl.toFixed(2), al, e, y: this.youOf(s) };
       const ev = this.events.length || s.inbox.length ? [...this.events, ...s.inbox] : null;
       if (ev) msg.ev = ev;
       if (board) msg.b = board;

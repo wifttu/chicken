@@ -88,7 +88,8 @@ export class Input {
   down(e) {
     if (!this.enabled) return;
     const touch = e.pointerType !== 'mouse';
-    if (touch && e.clientX < innerWidth * 0.45 && this.moveId === null) {
+    // 관전 중(lookOnly)에는 화면 어디를 끌어도 둘러보기
+    if (touch && !this.lookOnly && e.clientX < innerWidth * 0.45 && this.moveId === null) {
       this.moveId = e.pointerId;
       this.origin = [e.clientX, e.clientY];
       this.stick.style.display = 'block';

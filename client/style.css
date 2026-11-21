@@ -308,7 +308,7 @@ input[type='range'] {
 .panel .row.head,
 .list .row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 46px repeat(3, 54px);
+  grid-template-columns: 32px minmax(0, 1fr) 54px repeat(2, 54px);
   gap: 4px;
   align-items: center;
   font-variant-numeric: tabular-nums;
@@ -323,6 +323,13 @@ input[type='range'] {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.06);
   font-size: 14px;
+}
+.list .row.out {
+  opacity: 0.6;
+}
+.list .st b.alive {
+  font-weight: 700;
+  color: var(--yolk);
 }
 .list .row.me {
   background: rgba(255, 200, 61, 0.22);
@@ -365,7 +372,7 @@ input[type='range'] {
 @media (max-width: 480px) {
   .panel .row.head,
   .list .row {
-    grid-template-columns: 26px minmax(0, 1fr) 38px repeat(3, 40px);
+    grid-template-columns: 26px minmax(0, 1fr) 44px repeat(2, 44px);
   }
   .panel {
     padding: 16px 14px;
@@ -416,6 +423,10 @@ input[type='range'] {
 #myScore b {
   font-weight: 400;
 }
+#alive b {
+  font-weight: 400;
+}
+#alive small,
 #myScore small {
   font-family: var(--body);
   font-size: 12px;
@@ -544,7 +555,7 @@ input[type='range'] {
 #dead span b {
   color: var(--yolk);
 }
-#dead b#respawn {
+#dead b#deadNote {
   font-family: var(--display);
   font-weight: 400;
   font-size: 18px;
@@ -563,6 +574,54 @@ input[type='range'] {
   background: rgba(24, 22, 46, 0.65);
   font-size: 13px;
   text-align: center;
+}
+
+/* 잡힌 뒤(관전): 조이스틱·행동 버튼은 숨기고, 아래 가운데에 누구를 보는지 */
+#hud.out #stick,
+#hud.out #pad,
+#hud.out #hint {
+  display: none !important;
+}
+#spec {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(24, 22, 46, 0.72);
+  pointer-events: auto;
+}
+#spec[hidden] {
+  display: none;
+}
+#spec .who {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 130px;
+  max-width: 40vw;
+  line-height: 1.15;
+}
+#spec .who b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 20px;
+  color: var(--yolk);
+}
+#spec .who small {
+  font-size: 12px;
+  opacity: 0.8;
+}
+#specAgain {
+  font-size: 16px;
 }
 
 /* 조이스틱 */

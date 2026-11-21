@@ -83,7 +83,7 @@ test('AI 를 찔러도 점수는 그대로, 아무 표시도 없음, 칼만 늦�
   assert.equal(snap[snap.indexOf(e.id) + 4], ANIM.IDLE, '머리 위 표시 없이 평범한 닭으로 보인다');
 });
 
-test('플레이어를 찌르면 +1점, 잡힌 쪽은 3초 뒤 문 앞에서 새 닭으로 태어난다', () => {
+test('데스매치: 플레이어를 찌르면 +1점, 잡힌 쪽은 다시 태어나지 않고 살아 있는 플레이어를 관전한다', () => {
   const { g, s, got } = withHuman();
   play(g);
   const e = entOf(g, s);
@@ -97,10 +97,48 @@ test('플레이어를 찌르면 +1점, 잡힌 쪽은 3초 뒤 문 앞에서 새 
   assert.equal(vs.deaths, 1);
   g.broadcast();
   assert.ok(got.at(-1).ev.some((x) => x.t === 'got' && x.v === vs.name));
-  for (let i = 0; i < CFG.TICK_RATE * (CFG.RESPAWN + 0.2); i++) g.step();
-  const n = entOf(g, vs);
-  assert.ok(n && n.alive && n.id !== v.id);
-  assert.ok(SPAWNS.some((p) => Math.hypot(p.x - n.x, p.z - n.z) < 4), '문 앞에서 태어난다');
+  assert.equal(got.at(-1).al, CFG.PLAYERS - 1, '남은 플레이어 수');
+  assert.equal(got.at(-1).y.spec, undefined, '살아 있는 사람은 누가 플레이어인지 모른다');
+  for (let i = 0; i < CFG.TICK_RATE * 6; i++) g.step();
+  assert.ok(!entOf(g, vs)?.alive, '다시 태어나지 않는다');
+  // 내가 잡히면: 관전 목록(살아 있는 플레이어의 닭)을 받는다
+  const k = g.slots.find((x) => x !== s && g.isAlive(x));
+  g.kill(e, entOf(g, k));
+  got.length = 0;
+  g.step();
+  g.step();
+  g.broadcast();
+  const spec = got.at(-1).y.spec;
+  assert.equal(spec.length, g.alivePlayers);
+  for (const [id] of spec) assert.ok(g.ents.get(id).slot, '관전 목록에는 플레이어만');
+  assert.ok(spec.some(([id]) => id === k.ent));
+});
+
+test('데스매치: AI 닭은 잡히면 그대로 줄고, 플레이어가 한 명만 남으면 판이 끝나며 그 닭이 1등', () => {
+  const { g, s } = withHuman();
+  play(g);
+  const e = entOf(g, s);
+  const ai0 = [...g.ents.values()].filter((o) => !o.slot && o.alive).length;
+  g.kill(aiNear(g, e), e);
+  for (let i = 0; i < CFG.TICK_RATE * 10; i++) g.step();
+  assert.equal([...g.ents.values()].filter((o) => !o.slot && o.alive).length, ai0 - 1, 'AI 는 다시 태어나지 않는다');
+  for (const o of g.slots) if (o !== s && g.isAlive(o)) g.kill(entOf(g, o), e);
+  assert.equal(g.alivePlayers, 1);
+  for (let i = 0; i < CFG.TICK_RATE * (CFG.FINISH_DELAY + 0.2); i++) g.step();
+  assert.equal(g.phase, 'end');
+  assert.equal(g.result[0].pid, s.pid);
+  assert.equal(g.result[0].al, 1);
+});
+
+test('혼자 하기: 잡혀서 관전 중이면 새 판을 바로 시작할 수 있다', () => {
+  const { g, s } = withHuman();
+  play(g);
+  g.handle(s, { t: 'again' });
+  assert.equal(g.round, 1, '살아 있으면 안 된다');
+  g.kill(entOf(g, s), entOf(g, g.slots.find((x) => x !== s)));
+  g.handle(s, { t: 'again' });
+  assert.equal(g.round, 2);
+  assert.ok(g.isAlive(s));
 });
 
 test('뒤나 멀리 있는 닭은 찔리지 않고, 카운트다운 중에는 칼을 못 쓴다', () => {
@@ -238,9 +276,9 @@ test('봇만으로 한 판이 끝까지 돌고, 결과에 8명이 있다', () =>
   assert.equal(g.result.length, CFG.PLAYERS);
   const kills = g.slots.reduce((a, s) => a + s.kills + s.aiKills, 0);
   assert.ok(kills > 5, `봇들이 칼을 쓴다 (${kills})`);
-  // AI 수는 계속 유지된다 (잡힌 AI 는 다시 태어난다)
-  const ai = [...g.ents.values()].filter((e) => !e.slot && e.alive).length + g.aiQueue.length;
-  assert.ok(ai >= CFG.AI_COUNT - 3);
+  // AI 는 잡힌 만큼 줄어든다
+  const aiKills = g.slots.reduce((a, s) => a + s.aiKills, 0);
+  assert.equal([...g.ents.values()].filter((e) => !e.slot && e.alive).length, CFG.AI_COUNT - aiKills);
 });
 
 test('혼자 하기: 다시 하기를 누르면 바로 새 판', () => {
