@@ -12,7 +12,7 @@ export const CFG = {
 
   RADIUS: 0.35, // 닭 몸 반지름
   WALK: 2.0, // 걷기 속도 (m/s) — AI 와 사람이 똑같다
-  RUN: 4.6, // 달리기 속도
+  RUN: 4.6, // 달리기 속도 — 플레이어(사람·봇)만 뛸 수 있다. AI 닭은 절대 뛰지 않는다
   ACCEL: 12, // 속도 따라잡기
   TURN: 9, // 회전 속도 (rad/s)
   TURN_ONLY: 0.45, // 조이스틱을 이보다 덜 밀면 제자리에서 돌기만 한다
@@ -20,13 +20,13 @@ export const CFG = {
 
   STAB_RANGE: 1.65, // 칼이 닿는 거리 (몸 중심끼리)
   STAB_ANGLE: 1.0, // 정면 기준 좌우 허용 각 (rad, 약 57도)
-  STAB_CD: 0.8, // 찌르기 쿨다운
-  STAB_TIME: 0.35, // 찌르기 동작 시간
+  STAB_TIME: 2.0, // 찌르기 동작: 이 시간 동안 제자리에 멈춰 칼을 여러 번 찌른다 (움직이지도 돌지도 못한다).
+  //                 멈춤이 풀리면 바로 다시 찌를 수 있다 (따로 쿨다운 없음)
+  STAB_HIT: 0.5, // 찌르는 한 번의 길이 (STAB_TIME 동안 되풀이, 첫 번째에 맞는다)
 
   PECK_TIME: 0.7, // 쪼기 동작
   FLAP_TIME: 0.9, // 퍼덕이기 동작
 
-  AI_PENALTY: 1, // AI 를 찌르면 잃는 점수
   EXPOSE_TIME: 4, // AI 를 찌르면 머리 위에 ❗ 가 뜨는 시간
   PENALTY_CD: 2.5, // AI 를 찌른 뒤 칼을 다시 쓸 수 있을 때까지
 
@@ -36,6 +36,9 @@ export const CFG = {
 };
 
 // 화면에 보내는 동작 코드 (스냅샷에서 숫자 하나로 보낸다)
+// 찌르기 멈춤을 틱(입력) 수로: 서버와 내 닭 예측이 똑같이 센다
+export const STAB_TICKS = Math.round(CFG.STAB_TIME * CFG.TICK_RATE);
+
 export const ANIM = { IDLE: 0, WALK: 1, RUN: 2, PECK: 3, FLAP: 4, STAB: 5, DEAD: 6 };
 export const EXPOSED_BIT = 8;
 

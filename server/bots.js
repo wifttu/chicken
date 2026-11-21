@@ -1,5 +1,5 @@
 // 봇 플레이어: 평소에는 AI 닭처럼 연기하다가, 수상한 닭을 골라 슬금슬금 다가가 찌른다.
-// 봇은 정답(누가 사람인지)을 거의 모른다. 화면에서 보이는 행동(찌르기, 이유 없이 뛰기, 쉬지 않고 걷기)으로
+// 봇은 정답(누가 사람인지)을 거의 모른다. 화면에서 보이는 행동(찌르기, 뛰기, 쉬지 않고 걷기)으로
 // 쌓인 의심 점수를 보고 고르기 때문에 AI 를 잘못 찌르기도 한다.
 import { ACT, CFG, wrapAngle } from '../shared/config.js';
 import { clearPath } from '../shared/map.js';
@@ -57,10 +57,9 @@ export class BotBrain {
 
   think(game, ent, dt) {
     const rng = this.rng;
-    // 놀람(근처에서 누가 잡힘)·찌른 뒤 도망은 AI 와 똑같이 뛴다
-    if (ent.panicT > 0) return this.ai.think(game, ent, dt);
-    // 들켰으면(머리 위 ❗) 사람 없는 쪽으로 뛴다
-    if (ent.exposedT > 0 && rng() < 0.08) {
+    // 놀람(근처에서 누가 잡힘)·찌른 뒤 빠져나가기는 AI 와 똑같이 걷는다. 뛰면 플레이어인 게 들키니까.
+    // 다만 이미 들켰으면(머리 위 ❗) 숨길 것이 없으니 사람 없는 쪽으로 뛴다.
+    if (ent.exposedT > 0 && ent.panicT <= 0 && rng() < 0.08) {
       const near = game.nearby(ent, 6);
       let fx = 0;
       let fz = 0;
@@ -70,7 +69,11 @@ export class BotBrain {
       }
       const l = Math.hypot(fx, fz) || 1;
       game.panic(ent, fx / l, fz / l, range(rng, 1, 1.8));
-      return this.ai.think(game, ent, dt);
+    }
+    if (ent.panicT > 0) {
+      const out = this.ai.think(game, ent, dt);
+      out.run = ent.exposedT > 0;
+      return out;
     }
 
     this.pickT -= dt;
@@ -96,13 +99,13 @@ export class BotBrain {
     if (d < CFG.STAB_RANGE - 0.2) {
       // 닿는 거리: 돌아서서 찌른다
       out.face = ang;
-      if (Math.abs(wrapAngle(ang - ent.yaw)) < 0.45 && ent.cd <= 0) {
+      if (Math.abs(wrapAngle(ang - ent.yaw)) < 0.45 && ent.cd <= 0 && ent.lockN <= 0) {
         out.act = ACT.STAB;
         this.target = null;
         this.lastTry = game.time;
-        // 찌르고 나면 놀란 AI 들 사이에 섞여 달아난다
+        // 찌르는 동안 멈춰 있다가, 끝나면 놀란 AI 들 사이에 섞여 걸어서 빠져나간다
         const a = ang + Math.PI + (rng() - 0.5) * 1.6;
-        game.panic(ent, Math.sin(a), Math.cos(a), range(rng, 1.2, 2.2));
+        game.panic(ent, Math.sin(a), Math.cos(a), CFG.STAB_TIME + range(rng, 1.2, 2.2));
       }
       return out;
     }

@@ -732,7 +732,55 @@ input[type='range'] {
   }
 }
 
-/* 세로 화면: 메뉴는 아래쪽, 버튼은 조금 작게 */
+/* 휴대폰을 세로로 들면: 가로로 돌려 달라는 안내 (게임은 가로 화면 전용) */
+#rotate {
+  display: none;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    background: #2a2447;
+    color: #fff;
+  }
+  #rotate b {
+    font-family: var(--display);
+    font-size: 24px;
+    color: var(--yolk);
+  }
+  #rotate span {
+    font-size: 14px;
+    opacity: 0.75;
+  }
+  #rotate i {
+    width: 54px;
+    height: 92px;
+    margin-bottom: 18px;
+    border: 5px solid #fff;
+    border-radius: 12px;
+    animation: turn 2.2s ease-in-out infinite;
+  }
+}
+@keyframes turn {
+  0%,
+  25% {
+    transform: rotate(0deg);
+  }
+  55%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+
+/* 세로 화면 (PC 창이 세로로 길 때): 메뉴는 아래쪽, 버튼은 조금 작게 */
 @media (orientation: portrait) {
   #menu {
     align-items: flex-end;

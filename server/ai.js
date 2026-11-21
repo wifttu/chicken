@@ -1,5 +1,5 @@
-// AI 닭의 행동: 걷다 멈추고, 두리번거리고, 땅을 쪼고, 가끔 퍼덕이고, 드물게 뛴다.
-// 근처에서 닭이 잡히면 놀라 달아난다. 출력은 사람의 입력과 같은 꼴이라 같은 이동 코드로 움직인다.
+// AI 닭의 행동: 걷다 멈추고, 두리번거리고, 땅을 쪼고, 가끔 퍼덕인다. AI 닭은 절대 뛰지 않는다(뛰는 건 플레이어뿐).
+// 근처에서 닭이 잡히면 놀라 걸어서 달아난다. 출력은 사람의 입력과 같은 꼴이라 같은 이동 코드로 움직인다.
 import { ACT, CFG } from '../shared/config.js';
 import { clearPath, HALF } from '../shared/map.js';
 import { range } from '../shared/rng.js';
@@ -39,7 +39,7 @@ export class AiBrain {
     return null;
   }
 
-  // 놀라서 달아나기: 정해진 방향으로 뛰다가 막히면 옆으로 꺾는다
+  // 놀라서 달아나기: 정해진 방향으로 걷다가 막히면 옆으로 꺾는다
   flee(ent, out) {
     let a = Math.atan2(ent.fleeX, ent.fleeZ);
     for (const turn of [0, 0.7, -0.7, 1.4, -1.4, 2.2, -2.2]) {
@@ -53,7 +53,6 @@ export class AiBrain {
     ent.fleeZ = Math.cos(a);
     out.dx = ent.fleeX;
     out.dz = ent.fleeZ;
-    out.run = true;
     this.state = 'idle';
     this.t = range(this.rng, 0.6, 2.2); // 멈춘 뒤 잠깐 가만히
     this.face = null;
@@ -81,7 +80,7 @@ export class AiBrain {
         } else {
           this.dest = this.pickDest(game, ent);
           if (this.dest) {
-            this.state = r < 0.155 ? 'run' : 'walk';
+            this.state = 'walk';
             this.walkT = 0;
             this.face = null;
           } else this.t = range(rng, 0.5, 1.5);
@@ -90,20 +89,18 @@ export class AiBrain {
       return out;
     }
 
-    // 걷기 / 뛰기
+    // 걷기
     const dx = this.dest.x - ent.x;
     const dz = this.dest.z - ent.z;
     const d = Math.hypot(dx, dz);
     this.walkT += dt;
-    const speed = this.state === 'run' ? CFG.RUN : CFG.WALK;
-    if (d < 0.45 || this.walkT > d / speed + 3 + 0.5) {
+    if (d < 0.45 || this.walkT > d / CFG.WALK + 3 + 0.5) {
       this.state = 'idle';
       this.t = range(rng, 0.8, 4.5);
       return out;
     }
     out.dx = dx / d;
     out.dz = dz / d;
-    out.run = this.state === 'run';
     return out;
   }
 }

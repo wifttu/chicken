@@ -5,7 +5,7 @@
 //   뿌리(위치·방향) → 엉덩이(HIP) → 몸통(숙이기·비틀기) → 어깨 → 팔 → 손 → 칼
 //                    └ 허벅지 → 무릎 → 정강이·발
 import * as THREE from 'three';
-import { ANIM } from './shared/config.js';
+import { ANIM, CFG } from './shared/config.js';
 import { Builder, mat } from './geo.js';
 
 export const COLORS = {
@@ -210,18 +210,23 @@ export class ChickenView {
       kneeL = kneeR = (1 - env) * 0.2;
       lean = -0.08;
     } else if (a === ANIM.STAB) {
-      // 칼 든 오른팔: 뒤로 젖혔다가 앞으로 쭉 찌르기
-      const u = Math.min(1, t / 0.35);
-      if (u < 0.3) armR = 0.6 * ease(u / 0.3);
+      // 제자리에 멈춰 서서 칼 든 오른팔로 여러 번 찌른다: 뒤로 젖혔다가 앞으로 쭉 (STAB_HIT 마다 되풀이)
+      const P = CFG.STAB_HIT;
+      const ts = Math.min(t, CFG.STAB_TIME - 1e-3);
+      const n = Math.floor(ts / P);
+      const last = (n + 1) * P >= CFG.STAB_TIME - 0.1;
+      const u = (ts - n * P) / P;
+      if (u < 0.3) armR = n ? 0.6 : 0.6 * ease(u / 0.3);
       else if (u < 0.55) armR = 0.6 - 2.2 * ease((u - 0.3) / 0.25);
-      else armR = -1.6 * (1 - ease((u - 0.55) / 0.45));
+      else armR = -1.6 + (last ? 1.6 : 2.2) * ease((u - 0.55) / 0.45); // 다음 찌르기를 위해 다시 젖힌다
       const k = Math.max(0, -armR / 1.6);
+      const hold = last ? k : Math.max(k, 0.55); // 끝날 때까지 몸을 앞으로 숙인 채
       knifeA = 0.75 + 0.75 * k;
-      lean = 0.2 * k;
+      lean = 0.2 * hold;
       twist = -0.35 * k;
-      thighL = -0.35 * k;
-      kneeR = 0.3 * k;
-      armL = 0.4 * k;
+      thighL = -0.35 * hold;
+      kneeR = 0.3 * hold;
+      armL = 0.4 * hold;
     } else if (a === ANIM.DEAD) {
       // 뒤로 벌러덩, 팔다리는 하늘로
       const d = c.deadAt || 0;

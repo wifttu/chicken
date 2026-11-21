@@ -4,8 +4,12 @@ import { CFG, wrapAngle } from './config.js';
 import { pushOut } from './map.js';
 
 // c: {x,z,yaw,vx,vz}
-// inp: {dx,dz} 월드 방향(길이 0..1), run, face(제자리에서 바라볼 방향, 선택)
+// inp: {dx,dz} 월드 방향(길이 0..1), run, face(제자리에서 바라볼 방향, 선택), stop(찌르는 중: 그 자리에 딱 멈춘다)
 export function stepChicken(c, inp, dt) {
+  if (inp.stop) {
+    c.vx = c.vz = 0;
+    return;
+  }
   let dx = inp.dx || 0;
   let dz = inp.dz || 0;
   let mag = Math.hypot(dx, dz);

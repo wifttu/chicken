@@ -81,8 +81,8 @@ export class Sfx {
     this.tone({ type: 'triangle', f0: 240, f1: 70, dur: 0.14, gain: 0.3 * k, delay: 0.05 });
   }
 
-  whiff() {
-    this.noise({ dur: 0.16, gain: 0.18, f: 1500, f1: 4500, q: 1.2 });
+  whiff(d = 0) {
+    this.noise({ dur: 0.16, gain: 0.18 * this.near(d), f: 1500, f1: 4500, q: 1.2 });
   }
 
   squawk(d = 0) {

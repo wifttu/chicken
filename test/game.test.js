@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACT, ANIM, CFG } from '../shared/config.js';
+import { ACT, ANIM, CFG, STAB_TICKS } from '../shared/config.js';
 import { OBSTACLES, SPAWNS, blocked, pushOut } from '../shared/map.js';
 import { stepChicken } from '../shared/sim.js';
 import { Game, cleanName } from '../server/game.js';
@@ -60,20 +60,20 @@ test('스냅샷에는 누가 플레이어인지 드러나지 않는다', () => {
   assert.equal(typeof m.y.id, 'number', '내 닭은 알려 준다');
 });
 
-test('AI 를 찌르면 −1점(0 아래로는 안 감), 들킴, 칼 늦게 돌아옴', () => {
+test('AI 를 찔러도 점수는 그대로, 대신 들킴, 칼 늦게 돌아옴', () => {
   const { g, s, got } = withHuman();
   play(g);
   const e = entOf(g, s);
   const a = aiNear(g, e);
   putInFront(e, a);
-  s.score = 0;
+  s.score = 2;
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
   g.step();
   assert.equal(a.alive, false);
-  assert.equal(s.score, 0);
+  assert.equal(s.score, 2, '점수를 깎지 않는다');
   assert.equal(s.aiKills, 1);
   assert.ok(e.exposedT > CFG.EXPOSE_TIME - 0.1);
-  assert.ok(e.cd > CFG.STAB_CD);
+  assert.ok(e.cd > CFG.STAB_TIME, '칼은 멈춤보다 늦게 돌아온다');
   g.broadcast();
   const ev = got.at(-1).ev;
   assert.ok(ev.some((x) => x.t === 'feed' && x.v === null));
@@ -121,7 +121,7 @@ test('뒤나 멀리 있는 닭은 찔리지 않고, 카운트다운 중에는 �
   assert.equal(a.alive, true, '너무 멀다');
 });
 
-test('닭이 잡히면 근처 AI 닭이 놀라 달아난다', () => {
+test('닭이 잡히면 근처 AI 닭이 놀라 걸어서 달아난다 (AI 는 뛰지 않는다)', () => {
   const { g, s } = withHuman();
   play(g);
   const e = entOf(g, s);
@@ -132,8 +132,90 @@ test('닭이 잡히면 근처 AI 닭이 놀라 달아난다', () => {
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
   g.step();
   assert.ok(ais[1].panicT > 0);
+  const x0 = ais[1].x;
   for (let i = 0; i < 10; i++) g.step();
-  assert.equal(g.animOf(ais[1]) & 7, ANIM.RUN);
+  assert.equal(g.animOf(ais[1]) & 7, ANIM.WALK);
+  assert.ok(ais[1].x - x0 > 0.3, '찔린 곳에서 멀어진다');
+});
+
+test('달리기는 플레이어만: 한 판 내내 AI 닭은 한 번도 뛰지 않는다', () => {
+  const g = new Game({ seed: 5, autoRestart: false });
+  let aiRan = 0;
+  let playerRan = 0;
+  while (g.phase !== 'end') {
+    g.step();
+    for (const e of g.ents.values()) {
+      if (!e.alive || Math.hypot(e.vx, e.vz) <= CFG.WALK + 0.01) continue;
+      if (e.slot) playerRan++;
+      else aiRan++;
+    }
+  }
+  assert.equal(aiRan, 0);
+  // 사람은 뛸 수 있다
+  const { g: g2, s } = withHuman();
+  play(g2);
+  for (let i = 1; i <= 30; i++) {
+    g2.handle(s, { t: 'in', s: i, x: 1, z: 0, r: 1 });
+    g2.step();
+  }
+  assert.ok(Math.hypot(entOf(g2, s).vx, entOf(g2, s).vz) > CFG.RUN - 0.05);
+});
+
+test('찌르면 2초 동안 그 자리에 멈춰 칼질을 하고, 그동안 다시 못 찌른다', () => {
+  const { g, s } = withHuman();
+  play(g);
+  const e = entOf(g, s);
+  let seq = 0;
+  const send = (x, a = 0) => g.handle(s, { t: 'in', s: ++seq, x, z: 0, r: 1, a });
+  for (let i = 0; i < 20; i++) send(1), g.step(); // 뛰는 중에
+  const x0 = e.x;
+  send(1, ACT.STAB);
+  g.step();
+  assert.equal(e.vx, 0, '그 자리에 딱 멈춘다');
+  for (let i = 1; i < STAB_TICKS; i++) {
+    send(1, i === 20 ? ACT.STAB : 0);
+    g.step();
+    if (i < STAB_TICKS - 1) assert.equal(g.animOf(e) & 7, ANIM.STAB);
+  }
+  assert.equal(e.x, x0, '멈춘 동안은 조이스틱을 밀어도 안 움직인다');
+  assert.equal(e.sus >= 4 && e.sus < 8, true, '멈춘 동안 누른 찌르기는 무시된다');
+  send(1);
+  g.step();
+  assert.ok(e.x > x0, '2초가 지나면 다시 움직인다');
+  assert.notEqual(g.animOf(e) & 7, ANIM.STAB);
+});
+
+test('휴대폰 예측과 서버가 어긋나지 않는다 (입력이 늦게 오거나 몰려 와도)', () => {
+  const { g, s } = withHuman();
+  play(g);
+  const e = entOf(g, s);
+  const pred = { x: e.x, z: e.z, yaw: e.yaw, vx: e.vx, vz: e.vz };
+  const sent = new Map();
+  let seq = 0;
+  let lockN = 0;
+  // 입력이 0~3개씩 들쭉날쭉 도착한다
+  const pattern = [1, 0, 2, 1, 1, 0, 0, 3, 1, 2, 0, 1];
+  for (let t = 0; t < 240; t++) {
+    for (let k = 0; k < pattern[t % pattern.length]; k++) {
+      seq++;
+      const a = seq === 50 || seq === 140 ? ACT.STAB : 0;
+      if (a) lockN = STAB_TICKS;
+      const stop = lockN > 0;
+      if (stop) lockN--;
+      const ang = seq * 0.05;
+      const inp = { dx: stop ? 0 : +Math.sin(ang).toFixed(3), dz: stop ? 0 : +Math.cos(ang).toFixed(3), run: !stop && seq % 40 < 25, stop };
+      stepChicken(pred, inp, DT);
+      sent.set(seq, { x: pred.x, z: pred.z });
+      g.handle(s, { t: 'in', s: seq, x: inp.dx, z: inp.dz, r: inp.run ? 1 : 0, a });
+    }
+    g.step();
+    const want = sent.get(s.ack);
+    if (want) {
+      assert.equal(e.x, want.x, `x (입력 ${s.ack})`);
+      assert.equal(e.z, want.z, `z (입력 ${s.ack})`);
+    }
+  }
+  assert.ok(s.ack > 200 && s.inputs.length <= 3, '밀린 입력은 따라잡는다');
 });
 
 test('이상한 입력값은 잘라 낸다', () => {

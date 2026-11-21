@@ -1,6 +1,6 @@
 // 꼬꼬 스파이 클라이언트: 렌더링, 내 닭 예측, 다른 닭 보간, 화면 표시(HUD), 메뉴.
 import * as THREE from 'three';
-import { ACT, ANIM, CFG, EXPOSED_BIT, wrapAngle } from './shared/config.js';
+import { ACT, ANIM, CFG, EXPOSED_BIT, STAB_TICKS, wrapAngle } from './shared/config.js';
 import { blocked } from './shared/map.js';
 import { stepChicken } from './shared/sim.js';
 import { buildWorld, SKY } from './world.js';
@@ -94,12 +94,13 @@ const S = {
   tl: 0,
   myId: null,
   body: null,
-  pred: null, // 내 닭 (예측)
+  pred: null, // 내 닭 (예측, 30Hz 틱마다)
+  prev: null, // 바로 앞 틱의 내 닭: 화면은 prev → pred 사이를 이어 그린다 (프레임마다 부드럽게)
   pending: [],
   seq: 0,
   err: { x: 0, z: 0 }, // 서버 보정으로 생긴 차이 (조금씩 줄인다)
   cd: 0,
-  stabLock: 0,
+  lockN: 0, // 찌르는 중: 남은 멈춤 (입력 수, 서버와 똑같이 센다)
   ex: 0,
   rs: 0,
   killerId: null,
@@ -136,7 +137,9 @@ function resetMatch() {
   S.myId = null;
   S.body = null;
   S.pred = null;
+  S.prev = null;
   S.pending = [];
+  S.lockN = 0;
   S.err = { x: 0, z: 0 };
   S.ended = false;
   S.board = [];
@@ -283,6 +286,8 @@ function onYou(y) {
   if (y.id !== S.myId) {
     if (y.id) {
       S.pred = { x: y.x, z: y.z, yaw: y.yaw, vx: y.vx, vz: y.vz };
+      S.prev = { x: y.x, z: y.z, yaw: y.yaw };
+      S.lockN = 0;
       S.pending = [];
       S.err = { x: 0, z: 0 };
       input.yaw = y.yaw; // 새 닭의 등 뒤에서 본다
@@ -296,10 +301,17 @@ function onYou(y) {
     S.pending = S.pending.filter((p) => p.seq > y.ack);
     const ox = S.pred.x;
     const oz = S.pred.z;
+    const oyaw = S.pred.yaw;
     Object.assign(S.pred, { x: y.x, z: y.z, yaw: y.yaw, vx: y.vx, vz: y.vz });
     for (const p of S.pending) stepChicken(S.pred, p, DT);
-    S.err.x += ox - S.pred.x;
-    S.err.z += oz - S.pred.z;
+    // 서버와 어긋난 만큼은 err 로 받아 조금씩 줄인다 (보통은 0). 앞 틱(prev)도 같이 옮겨 화면이 튀지 않게
+    const dx = S.pred.x - ox;
+    const dz = S.pred.z - oz;
+    S.err.x -= dx;
+    S.err.z -= dz;
+    S.prev.x += dx;
+    S.prev.z += dz;
+    S.prev.yaw += wrapAngle(S.pred.yaw - oyaw);
     if (Math.hypot(S.err.x, S.err.z) > 2) S.err = { x: 0, z: 0 };
   }
   S.body = y.body ?? null;
@@ -314,7 +326,7 @@ function onEvent(ev) {
       addFeed(ev.k, ev.v);
       break;
     case 'oops':
-      toast('AI 를 찔렀어요! −1점 · 머리 위에 ❗ 가 떴어요', 'bad');
+      toast('AI 를 찔렀어요! 머리 위에 ❗ 가 떴어요', 'bad');
       sfx.bad();
       buzz([60, 40, 60]);
       break;
@@ -359,18 +371,18 @@ function tickInput() {
   const fx_ = Math.sin(yaw);
   const fz_ = Math.cos(yaw);
   // 화면 기준 → 월드 방향 (앞 = 카메라가 보는 쪽, 오른쪽 = (-cos, sin))
-  const dx = fx_ * input.mz - fz_ * input.mx;
-  const dz = fz_ * input.mz + fx_ * input.mx;
-  const run = input.running && Math.hypot(input.mx, input.mz) > 0.1;
+  let dx = fx_ * input.mz - fz_ * input.mx;
+  let dz = fz_ * input.mz + fx_ * input.mx;
+  let run = input.running && Math.hypot(input.mx, input.mz) > 0.1;
   const now = performance.now() / 1000;
   let a = input.takeAct();
   const alive = S.mode === 'game' && S.myId !== null && S.pred && S.phase === 'play';
   if (!alive) a = 0;
-  const busy = now - S.myActAt < actTime(S.myAct);
+  const busy = S.lockN > 0 || now - S.myActAt < actTime(S.myAct);
   if (a === ACT.STAB) {
-    if (S.cd > 0.05 || now < S.stabLock) a = 0;
+    if (S.cd > 0 || S.lockN > 0) a = 0;
     else {
-      S.stabLock = now + CFG.STAB_CD;
+      S.lockN = STAB_TICKS; // 찌른 이 입력부터 멈춘다 (서버도 똑같이 센다)
       S.myAct = ACT.STAB;
       S.myActAt = now;
       sfx.whiff();
@@ -383,21 +395,33 @@ function tickInput() {
       S.myActAt = now;
     }
   }
+  // 찌르는 중이거나 살아 있지 않으면 움직이지 않는다
+  const stop = alive && S.lockN > 0;
+  if (stop) S.lockN--;
+  if (stop || !alive) {
+    dx = dz = 0;
+    run = false;
+  }
   S.seq++;
   S.link.send({ t: 'in', s: S.seq, x: +dx.toFixed(3), z: +dz.toFixed(3), r: run ? 1 : 0, a });
   if (alive) {
-    const inp = { seq: S.seq, dx, dz, run };
+    // 서버가 받는 값(소수 셋째 자리)과 똑같이 예측해야 어긋나지 않는다
+    const inp = { seq: S.seq, dx: +dx.toFixed(3), dz: +dz.toFixed(3), run, stop };
     S.pending.push(inp);
     if (S.pending.length > 90) S.pending.shift();
+    S.prev.x = S.pred.x;
+    S.prev.z = S.pred.z;
+    S.prev.yaw = S.pred.yaw;
     stepChicken(S.pred, inp, DT);
   }
 }
 
-const actTime = (a) => (a === ACT.STAB ? CFG.STAB_TIME : a === ACT.PECK ? CFG.PECK_TIME : a === ACT.FLAP ? CFG.FLAP_TIME : 0);
+const actTime = (a) => (a === ACT.PECK ? CFG.PECK_TIME : a === ACT.FLAP ? CFG.FLAP_TIME : 0);
 
 function myCode(now) {
   let code;
-  if (now - S.myActAt < actTime(S.myAct)) code = S.myAct === ACT.STAB ? ANIM.STAB : S.myAct === ACT.PECK ? ANIM.PECK : ANIM.FLAP;
+  if (S.myAct === ACT.STAB && S.lockN > 0) code = ANIM.STAB;
+  else if (S.myAct !== ACT.STAB && now - S.myActAt < actTime(S.myAct)) code = S.myAct === ACT.PECK ? ANIM.PECK : ANIM.FLAP;
   else {
     const sp = Math.hypot(S.pred.vx, S.pred.vz);
     code = sp > 3.2 ? ANIM.RUN : sp > 0.25 ? ANIM.WALK : ANIM.IDLE;
@@ -407,6 +431,16 @@ function myCode(now) {
 }
 
 // ───────────────────────── 보간 ─────────────────────────
+// 내 닭: 30Hz 틱 사이를 프레임마다 이어 그린다 (60·90·120Hz 화면에서도 매 프레임 조금씩 움직인다)
+let tickAlpha = 1;
+const myPos = { x: 0, z: 0, yaw: 0 };
+function updateMyPos() {
+  const p = S.prev || S.pred;
+  myPos.x = lerp(p.x, S.pred.x, tickAlpha) + S.err.x;
+  myPos.z = lerp(p.z, S.pred.z, tickAlpha) + S.err.z;
+  myPos.yaw = lerpAngle(p.yaw, S.pred.yaw, tickAlpha);
+}
+
 function sampleEnts(now) {
   const snaps = S.snaps;
   if (!snaps.length) return new Map();
@@ -443,13 +477,14 @@ function render(dt, now) {
   const decay = Math.exp(-dt * 10);
   S.err.x *= decay;
   S.err.z *= decay;
+  if (S.pred) updateMyPos();
 
   // 듣는 위치 (소리 크기)
   let lx = 0;
   let lz = 0;
   if (S.myId && S.pred) {
-    lx = S.pred.x;
-    lz = S.pred.z;
+    lx = myPos.x;
+    lz = myPos.z;
   } else {
     lx = camTarget.x;
     lz = camTarget.z;
@@ -463,9 +498,9 @@ function render(dt, now) {
     let { x, z, yaw, code } = e;
     const mine = id === S.myId && S.pred;
     if (mine) {
-      x = S.pred.x + S.err.x;
-      z = S.pred.z + S.err.z;
-      yaw = S.pred.yaw;
+      x = myPos.x;
+      z = myPos.z;
+      yaw = myPos.yaw;
       code = myCode(now);
     }
     if (!v) {
@@ -483,16 +518,25 @@ function render(dt, now) {
         sfx.stab(dist);
       } else if (anim === ANIM.PECK || anim === ANIM.FLAP || anim === ANIM.STAB) {
         v.animAt = now;
+        v.hitN = 0;
         if (anim === ANIM.FLAP) {
           sfx.flap(dist);
           fx.puff(x, 0.2, z, 0.6, { life: 0.6 });
         } else if (anim === ANIM.PECK) sfx.peck(dist);
         else {
           fx.slash(x, z, yaw);
-          if (!mine) sfx.whiff();
+          if (!mine) sfx.whiff(dist);
         }
       }
       v.anim = anim;
+    } else if (anim === ANIM.STAB) {
+      // 멈춰 서서 몇 번 더 찌른다: 찌를 때마다 칼바람
+      const n = Math.floor((now - v.animAt) / CFG.STAB_HIT);
+      if (n > v.hitN && n * CFG.STAB_HIT < CFG.STAB_TIME - 0.1) {
+        v.hitN = n;
+        fx.slash(x, z, yaw);
+        sfx.whiff(mine ? 0 : dist);
+      }
     }
     const moved = Math.hypot(x - v.px, z - v.pz);
     v.phase += Math.min(moved, 1) * 5.6;
@@ -556,8 +600,8 @@ function updateCamera(dt, now, ents, killerPos) {
   let dist = 5.9;
   let pitch = input.pitch;
   if (S.mode === 'game' && S.myId && S.pred) {
-    tx = S.pred.x + S.err.x;
-    tz = S.pred.z + S.err.z;
+    tx = myPos.x;
+    tz = myPos.z;
   } else if (S.mode === 'game' && S.body && ents.get(S.body)) {
     const b = ents.get(S.body);
     tx = b.x;
@@ -666,9 +710,9 @@ function updateHud(dt, now) {
   }
   const me = S.board.find((b) => b.pid === S.pid);
   if (me) $('myScore').innerHTML = `⭐ <b>${me.s}</b><small>🔪${me.k} · 🐔${me.a} · 💀${me.d}</small>`;
-  // 찌르기 쿨다운
-  const left = Math.max(S.cd, S.stabLock - now);
-  const total = S.cd > CFG.STAB_CD ? CFG.PENALTY_CD : CFG.STAB_CD;
+  // 찌르기: 멈춰 있는 시간(그동안 다시 못 찌른다), AI 를 찔렀으면 더 길게
+  const left = Math.max(S.cd, S.lockN * DT);
+  const total = S.cd > 0.05 ? CFG.PENALTY_CD : CFG.STAB_TIME;
   $('cdMask').style.setProperty('--p', left > 0.05 ? `${Math.min(1, left / total) * 360}deg` : '0deg');
   $('stab').classList.toggle('cool', left > 0.05);
   $('exposed').hidden = !(S.ex > 0 && S.myId);
@@ -844,14 +888,15 @@ function frame(t) {
       acc -= DT;
       tickInput();
     }
-  }
+    tickAlpha = acc / DT;
+  } else tickAlpha = 1;
   render(dt, now);
   updateHud(dt, now);
   adaptRes(dt);
 }
 
 startDemo();
-if (/[?&]debug\b/.test(location.search)) window.__kkokko = { S, input, camera, vis };
+if (/[?&]debug\b/.test(location.search)) window.__kkokko = { S, input, camera, vis, renderer };
 requestAnimationFrame((t) => {
   last = t;
   frame(t);

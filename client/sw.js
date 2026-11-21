@@ -1,6 +1,6 @@
 // 서비스 워커: 홈 화면에 앱으로 설치할 수 있게 하고, 인터넷이 끊겨도 마지막으로 받은 화면으로 열리게 한다.
 // 항상 네트워크를 먼저 쓰므로 새 버전이 배포되면 바로 반영된다(캐시는 오프라인일 때만 쓴다).
-const CACHE = 'kkokko-v1';
+const CACHE = 'kkokko-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));

@@ -2,7 +2,7 @@
 //
 // 비밀 지키기: 스냅샷에는 닭마다 [id, x, z, 방향, 동작] 만 실린다. AI 와 플레이어가 같은 꼴이고,
 // id 는 무작위이며 id 순으로 보내므로 만든 순서도 드러나지 않는다. 내가 누구인지만 따로 알려 준다.
-import { ACT, ANIM, CFG, EXPOSED_BIT } from '../shared/config.js';
+import { ACT, ANIM, CFG, EXPOSED_BIT, STAB_TICKS } from '../shared/config.js';
 import { SPAWNS, blocked, randomOpen } from '../shared/map.js';
 import { stepChicken, speedOf } from '../shared/sim.js';
 import { mulberry32, range } from '../shared/rng.js';
@@ -11,6 +11,7 @@ import { BotBrain, botName } from './bots.js';
 
 const DT = 1 / CFG.TICK_RATE;
 const IDLE_INPUT = Object.freeze({ dx: 0, dz: 0, run: false, face: null, act: ACT.NONE });
+const HOLD_INPUT = Object.freeze({ dx: 0, dz: 0, run: false, face: null, act: ACT.NONE, stop: true }); // 찌르는 중
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : 0);
 
 export class Game {
@@ -35,7 +36,6 @@ export class Game {
     this.round++;
     this.ents.clear();
     this.events = []; // 모두에게 (다음 스냅샷에 실린다)
-    this.kills = []; // 최근 잡힌 곳 {x,z,at}: "놀라서 뛰는 중"인지 판단용
     this.aiQueue = []; // AI 가 다시 태어날 시각
     this.time = 0;
     this.phase = 'count';
@@ -80,7 +80,7 @@ export class Game {
 
   // ───────────── 자리 (사람/봇) ─────────────
   newSlot(name, bot) {
-    return { pid: this.nextPid++, name, bot, session: null, score: 0, kills: 0, aiKills: 0, deaths: 0, ent: null, respawnT: 0, inputs: [], last: IDLE_INPUT, ack: 0, inbox: [], again: false };
+    return { pid: this.nextPid++, name, bot, session: null, score: 0, kills: 0, aiKills: 0, deaths: 0, ent: null, respawnT: 0, inputs: [], ack: 0, inbox: [], again: false };
   }
 
   addBot() {
@@ -97,7 +97,7 @@ export class Game {
     s.bot = null;
     s.session = session;
     s.name = cleanName(name, new Set(this.slots.map((x) => x.name)));
-    Object.assign(s, { score: 0, kills: 0, aiKills: 0, deaths: 0, inputs: [], last: IDLE_INPUT, ack: 0, again: false });
+    Object.assign(s, { score: 0, kills: 0, aiKills: 0, deaths: 0, inputs: [], ack: 0, again: false });
     this.boardDirty = true;
     s.inbox.push({ t: 'hello', pid: s.pid, round: this.round });
     if (this.phase === 'end') s.inbox.push({ t: 'end', rank: this.result });
@@ -127,7 +127,7 @@ export class Game {
         act: Math.floor(num(m.a, 0, 3)),
       };
       s.inputs.push(inp);
-      if (s.inputs.length > 8) s.inputs.splice(0, s.inputs.length - 8);
+      if (s.inputs.length > 12) s.inputs.splice(0, s.inputs.length - 12);
     } else if (m.t === 'again') {
       if (this.phase !== 'end') return;
       s.again = true;
@@ -157,6 +157,7 @@ export class Game {
       act: ACT.NONE,
       actT: 0,
       cd: 0,
+      lockN: 0, // 찌르는 중: 남은 멈춤 (입력 수)
       exposedT: 0,
       panicT: 0,
       fleeX: 0,
@@ -225,18 +226,12 @@ export class Game {
     if (this.phase !== 'count') this.time += dt;
 
     // 플레이어 입력 (사람: 받은 입력을 틱마다 하나씩, 봇: 생각)
+    // 사람의 닭은 받은 입력 하나에 꼭 한 번만 움직인다. 입력이 늦게 와서 비면 기다리고(움직이지 않고),
+    // 밀려 쌓이면 한 틱에 두 개를 처리해 따라잡는다. 그래야 휴대폰의 예측과 서버가 한 치도 어긋나지 않는다.
     for (const s of this.slots) {
-      let inp = IDLE_INPUT;
-      if (!s.bot) {
-        const q = s.inputs.shift();
-        if (q) {
-          s.ack = q.seq;
-          s.last = { ...q, act: ACT.NONE };
-          inp = q;
-        } else inp = s.last;
-      }
       const e = this.ents.get(s.ent);
       if (!e || !e.alive) {
+        if (!s.bot) this.takeInputs(s, s.inputs.length);
         if (play && s.respawnT > 0 && (s.respawnT -= dt) <= 0) {
           const n = this.spawnAtDoor(s);
           s.ent = n.id;
@@ -245,17 +240,26 @@ export class Game {
         }
         continue;
       }
-      if (this.phase === 'count') continue; // 카운트다운 동안은 모두 멈춘다
-      if (!play) inp = IDLE_INPUT; // 결과 화면: 플레이어는 멈춘다
-      else if (s.bot) inp = s.bot.think(this, e, dt);
-      this.apply(e, inp, dt, play);
+      if (s.bot) {
+        if (this.phase === 'count') continue; // 카운트다운 동안은 모두 멈춘다
+        this.tickTimers(e, dt);
+        this.apply(e, play ? s.bot.think(this, e, dt) : IDLE_INPUT, dt, play);
+        continue;
+      }
+      const list = this.takeInputs(s, s.inputs.length > 2 ? 2 : 1);
+      if (this.phase === 'count') continue;
+      this.tickTimers(e, dt);
+      for (const q of list) this.apply(e, play ? q : IDLE_INPUT, dt, play);
     }
 
     // AI 닭
     if (this.phase !== 'count') {
       for (const e of this.ents.values()) {
         if (e.slot || !e.alive) continue;
-        this.apply(e, e.brain.think(this, e, dt), dt, play);
+        this.tickTimers(e, dt);
+        const inp = e.brain.think(this, e, dt);
+        inp.run = false; // AI 닭은 절대 뛰지 않는다 (뛰는 건 플레이어뿐)
+        this.apply(e, inp, dt, play);
       }
     }
 
@@ -269,22 +273,36 @@ export class Game {
         this.spawnAtDoor(null);
       }
     }
-    while (this.kills.length && this.time - this.kills[0].at > 3) this.kills.shift();
     this.updateSuspicion(dt);
   }
 
-  apply(e, inp, dt, play) {
-    if (e.actT > 0 && (e.actT -= dt) <= 0) e.act = ACT.NONE;
+  // 받은 입력을 꺼낸다 (마지막으로 처리한 입력 번호를 ack 로 돌려준다)
+  takeInputs(s, n) {
+    const list = s.inputs.splice(0, n);
+    if (list.length) s.ack = list.at(-1).seq;
+    return list;
+  }
+
+  tickTimers(e, dt) {
+    if (e.act !== ACT.STAB && e.actT > 0 && (e.actT -= dt) <= 0) e.act = ACT.NONE;
     e.cd = Math.max(0, e.cd - dt);
     e.exposedT = Math.max(0, e.exposedT - dt);
     e.panicT = Math.max(0, e.panicT - dt);
+  }
+
+  apply(e, inp, dt, play) {
     const a = inp.act;
     if (a === ACT.STAB) {
-      if (play && e.slot && e.cd <= 0 && e.act !== ACT.STAB) this.stab(e);
+      if (play && e.slot && e.cd <= 0 && e.lockN <= 0) this.stab(e);
     } else if (a && !e.act) {
       e.act = a;
       e.actT = a === ACT.PECK ? CFG.PECK_TIME : CFG.FLAP_TIME;
       if (speedOf(e) > 0.8) e.sus += 0.5; // 걸으면서 쪼는 닭은 없다
+    }
+    // 찌르는 동안은 그 자리에 딱 멈춘다 (찌른 그 입력부터 STAB_TICKS 개)
+    if (e.lockN > 0) {
+      inp = HOLD_INPUT;
+      if (--e.lockN <= 0) e.act = ACT.NONE;
     }
     stepChicken(e, inp, dt);
   }
@@ -292,8 +310,8 @@ export class Game {
   // 칼 찌르기: 앞쪽 부채꼴 안에서 가장 가까운 닭 하나
   stab(e) {
     e.act = ACT.STAB;
-    e.actT = CFG.STAB_TIME;
-    e.cd = CFG.STAB_CD;
+    e.actT = 0;
+    e.lockN = STAB_TICKS;
     e.sus += 4; // 칼을 휘두르는 건 플레이어뿐
     const fx = Math.sin(e.yaw);
     const fz = Math.cos(e.yaw);
@@ -320,14 +338,14 @@ export class Game {
     v.alive = false;
     v.deadT = CFG.BODY_TIME;
     v.act = ACT.NONE;
+    v.lockN = 0;
     v.vx = v.vz = 0;
     v.exposedT = 0;
     v.killer = k.id;
     const ks = k.slot;
     if (!v.slot) {
-      // AI 를 찔렀다: 점수 잃고, 잠깐 들키고, 칼이 늦게 돌아온다
+      // AI 를 찔렀다: 점수는 그대로, 잠깐 들키고, 칼이 늦게 돌아온다
       ks.aiKills++;
-      ks.score = Math.max(0, ks.score - CFG.AI_PENALTY);
       k.exposedT = CFG.EXPOSE_TIME;
       k.cd = CFG.PENALTY_CD;
       ks.inbox.push({ t: 'oops' });
@@ -345,15 +363,14 @@ export class Game {
       this.events.push({ t: 'feed', k: ks.name, v: vs.name });
     }
     this.boardDirty = true;
-    this.kills.push({ x: v.x, z: v.z, at: this.time });
-    // 근처 AI 닭은 놀라서 달아나고, 봇도 대개 따라 뛴다 (찌른 닭이 섞여 도망칠 틈)
+    // 근처 AI 닭은 놀라서 (걸어서) 달아나고, 봇도 대개 따라 걷는다 (찌른 닭이 섞여 빠져나갈 틈)
     for (const o of this.nearby(v, CFG.PANIC_RADIUS)) {
       if (o === k || (o.slot && (!o.slot.bot || this.rng() > 0.75))) continue;
       const fx = o.x - v.x;
       const fz = o.z - v.z;
       const l = Math.hypot(fx, fz) || 1;
       const a = Math.atan2(fx / l, fz / l) + (this.rng() - 0.5) * 1.0;
-      this.panic(o, Math.sin(a), Math.cos(a), range(this.rng, 1.2, 2.4));
+      this.panic(o, Math.sin(a), Math.cos(a), range(this.rng, 1.6, 3.2));
       if (!o.slot) o.act = ACT.NONE;
     }
   }
@@ -365,10 +382,7 @@ export class Game {
       if (!e.alive) continue;
       e.sus *= decay;
       const sp = speedOf(e);
-      if (sp > 3.2) {
-        const excuse = this.kills.some((k) => this.time - k.at < 2.5 && Math.hypot(k.x - e.x, k.z - e.z) < 9);
-        if (!excuse) e.sus += 1.0 * dt; // 이유 없이 뛴다
-      }
+      if (sp > 3.2) e.sus = Math.max(e.sus, 2.2) + 2.5 * dt; // 뛰는 건 플레이어뿐이다 (AI 는 뛰지 않는다)
       e.moveT = sp > 0.5 ? e.moveT + dt : 0;
       if (e.moveT > 8) e.sus += 0.5 * dt; // 쉬지 않고 걷는다
       if (e.exposedT > 0) e.sus = Math.max(e.sus, 5);
