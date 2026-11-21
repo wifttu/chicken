@@ -481,6 +481,7 @@ function tickInput() {
       S.myAct = ACT.STAB;
       S.myActAt = now;
       sfx.whiff();
+      sfx.battle(0); // "꽤액!"
       buzz(25);
     }
   } else if (a) {
@@ -563,7 +564,6 @@ const camTarget = new THREE.Vector3();
 const camPos = new THREE.Vector3();
 const desired = new THREE.Vector3();
 let ambientT = 1;
-let stepT = 0;
 
 function render(dt, now) {
   frameNo++;
@@ -620,24 +620,29 @@ function render(dt, now) {
         } else if (anim === ANIM.PECK) sfx.peck(dist);
         else {
           fx.slash(x, z, yaw);
-          if (!mine) sfx.whiff(dist);
+          if (!mine) sfx.whiff(dist), sfx.battle(dist);
         }
       }
       v.anim = anim;
     }
     const moved = Math.hypot(x - v.px, z - v.pz);
     v.phase += Math.min(moved, 1) * 5.6;
+    const stepN = Math.floor(v.phase / Math.PI); // 걸음 위상 반 바퀴 = 한 발
     if (anim === ANIM.RUN && moved > 0.001) {
+      // 뛰는 소리: 발을 디딜 때마다 "탁", 가끔 숨찬 "꼭꼭꼭"
+      if (stepN !== v.stepN) sfx.step(dist);
+      v.cluckT = (v.cluckT ?? Math.random() * 0.4) - dt;
+      if (v.cluckT <= 0) {
+        v.cluckT = 0.55 + Math.random() * 0.4;
+        sfx.runCluck(dist);
+      }
       v.puffT -= dt;
       if (v.puffT <= 0) {
         v.puffT = 0.1 + Math.random() * 0.04;
         fx.puff(x - Math.sin(yaw) * 0.35 + (Math.random() - 0.5) * 0.3, 0.22, z - Math.cos(yaw) * 0.35, 0.75 + Math.random() * 0.3, { vx: -Math.sin(yaw) * 0.6, vz: -Math.cos(yaw) * 0.6 });
-        if (mine) {
-          stepT -= 1;
-          if (stepT <= 0) (stepT = 2), sfx.step();
-        }
       }
     }
+    v.stepN = stepN;
     v.px = x;
     v.pz = z;
     const head = chickens.draw({ x, z, yaw, anim, at: now - v.animAt, phase: v.phase, seed: v.seed, deadAt: now - v.deadAt });
