@@ -21,13 +21,37 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 // ───────────────────────── 설정 (기기에 저장) ─────────────────────────
 const PKEY = 'kkokko.prefs';
-const prefs = { name: '', sens: 1, vol: 0.8, server: '' };
+const prefs = { name: '', sens: 1, vol: 0.8, server: '', level: 'normal', lefty: false };
 try {
   Object.assign(prefs, JSON.parse(localStorage.getItem(PKEY)) || {});
 } catch {}
 const savePrefs = () => {
   try {
     localStorage.setItem(PKEY, JSON.stringify(prefs));
+  } catch {}
+};
+
+// 온라인 열쇠: 연결이 잠깐 끊겨도 같은 자리(같은 닭)로 돌아오기 위한 무작위 값 (이 탭에서만)
+const TOK = (() => {
+  const make = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  try {
+    let t = sessionStorage.getItem('kkokko.tok');
+    if (!t) sessionStorage.setItem('kkokko.tok', (t = make()));
+    return t;
+  } catch {
+    return make();
+  }
+})();
+
+// 내 기록 (이 기기에만)
+const STATS_KEY = 'kkokko.stats';
+const stats = { games: 0, wins: 0, kills: 0, ai: 0, survived: 0, best: 0 };
+try {
+  Object.assign(stats, JSON.parse(localStorage.getItem(STATS_KEY)) || {});
+} catch {}
+const saveStats = () => {
+  try {
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
   } catch {}
 };
 
@@ -105,6 +129,10 @@ const S = {
   specId: null,
   spectating: false,
   aliveN: 0,
+  played: false, // 이번 판에 내 닭이 있었는지 (중간에 들어와 관전만 했으면 기록하지 않는다)
+  lateShown: false,
+  room: '', // 친구 방 코드
+  resync: false, // 다시 연결됐다: 다음 스냅샷으로 내 닭을 새로 맞춘다
   killerId: null,
   killerName: '',
   deadAt: 0,
@@ -155,6 +183,7 @@ function resetMatch() {
   S.specName = '';
   S.spectating = false;
   S.deadAt = 0;
+  S.played = false;
   killedBy.clear();
   S.myAct = 0;
   S.camSnap = true;
@@ -166,7 +195,7 @@ function startSolo() {
   closeLink();
   enterGame();
   S.online = false;
-  S.link = new LocalLink({ name: S.name, onMessage });
+  S.link = new LocalLink({ name: S.name, onMessage, level: prefs.level });
 }
 
 let net = null;
@@ -175,7 +204,7 @@ function serverOrigin() {
   return normalizeServer(prefs.server) || normalizeServer(DEFAULT_SERVER);
 }
 
-async function startOnline() {
+async function startOnline(room = '') {
   const origin = serverOrigin();
   if (!origin) {
     openSheet('settings');
@@ -192,7 +221,23 @@ async function startOnline() {
     onMessage,
     onState: (st) => {
       $('onlineState').textContent = { connecting: '연결하는 중…', waking: '서버 깨우는 중… (최대 1분)', open: '연결됨', closed: '끊어졌어요', failed: '연결 실패' }[st] || '';
-      if ((st === 'closed' || st === 'failed') && S.mode === 'game' && S.online) {
+      if (!(S.mode === 'game' && S.online)) return;
+      if (st === 'closed') {
+        // 잠깐 끊겼을 수 있다: 20초 동안 다시 붙어 본다 (서버가 그동안 내 닭을 맡아 둔다)
+        toast('연결이 끊겼어요. 다시 연결하는 중…', 'bad');
+        clearTimeout(S.dropTimer);
+        S.dropTimer = setTimeout(() => {
+          if (S.online && S.mode === 'game' && !net?.ready) {
+            toast('다시 연결하지 못했어요', 'bad');
+            exitGame();
+          }
+        }, 20000);
+      } else if (st === 'open' && S.joined) {
+        clearTimeout(S.dropTimer);
+        S.resync = true;
+        net.send({ t: 'join', name: S.name, tok: TOK, room: S.room });
+        toast('다시 연결됐어요', 'good');
+      } else if (st === 'failed') {
         toast('서버와 연결이 끊어졌어요', 'bad');
         setTimeout(() => S.online && S.mode === 'game' && exitGame(), 1500);
       }
@@ -202,8 +247,10 @@ async function startOnline() {
   if (!ok) return;
   enterGame();
   S.online = true;
+  S.room = room === 'new' ? '' : room;
   S.link = { send: (m) => net.send(m), close: () => net.close() };
-  net.send({ t: 'join', name: S.name });
+  net.send({ t: 'join', name: S.name, tok: TOK, room });
+  S.joined = true;
 }
 
 function enterGame() {
@@ -215,7 +262,11 @@ function enterGame() {
   resetMatch();
   $('menu').hidden = true;
   $('hud').hidden = false;
-  $('hint').textContent = MOBILE ? '왼쪽을 끌어 걷고, 오른쪽을 끌어 둘러보세요' : 'WASD 걷기 · 마우스 끌기 둘러보기 · Space 찌르기 · Shift 달리기';
+  $('hint').textContent = MOBILE
+    ? prefs.lefty
+      ? '오른쪽을 끌어 걷고, 왼쪽을 끌어 둘러보세요'
+      : '왼쪽을 끌어 걷고, 오른쪽을 끌어 둘러보세요'
+    : 'WASD 걷기 · 마우스 끌기 둘러보기 · Space 찌르기 · Shift 달리기';
   $('hint').hidden = false;
   setTimeout(() => ($('hint').hidden = true), 7000);
   input.enabled = true;
@@ -229,10 +280,16 @@ function exitGame() {
   input.enabled = false;
   input.reset();
   S.online = false;
+  S.joined = false;
+  clearTimeout(S.dropTimer);
+  $('roomChip').hidden = true;
+  net?.send({ t: 'bye' }); // 일부러 나간다: 서버가 자리를 맡아 두지 않는다
   net?.close();
   net = null;
   $('hud').hidden = true;
   hideSheets();
+  $('result').hidden = true; // 결과 화면에서 "나가기"를 눌렀을 때 메뉴를 가리지 않게
+  $('dead').hidden = true;
   $('menu').hidden = false;
   $('onlineState').textContent = onlineLabel();
   keepAwake(false);
@@ -267,6 +324,17 @@ for (const ev of ['pointerup', 'touchend']) addEventListener(ev, () => S.mode ==
 
 // ───────────────────────── 메시지 ─────────────────────────
 function onMessage(m) {
+  if (m.t === 'room') {
+    S.room = m.code || '';
+    $('roomChip').hidden = !S.room;
+    $('roomChip').textContent = `🔑 방 ${S.room}`;
+    return;
+  }
+  if (m.t === 'err') {
+    toast(esc(m.m), 'bad');
+    exitGame();
+    return;
+  }
   if (m.t !== 's') return;
   const now = performance.now() / 1000;
   const st = m.k / CFG.TICK_RATE;
@@ -299,6 +367,21 @@ function onMessage(m) {
 function onYou(y) {
   if (!y) return;
   S.pid = y.pid ?? S.pid;
+  if (y.id) S.played = true;
+  // 판 중간에 들어와 바로 관전하게 됐을 때
+  if (S.online && !S.lateShown && !y.id && S.phase === 'play' && !S.played) {
+    S.lateShown = true;
+    toast('판이 진행 중이에요. 관전하다가 다음 판부터 함께해요', '');
+  }
+  // 다시 연결됐다: 끊긴 동안의 예측은 버리고 서버 위치로 맞춘다
+  if (S.resync && y.id && y.id === S.myId) {
+    S.resync = false;
+    S.pred = { x: y.x, z: y.z, yaw: y.yaw, vx: y.vx, vz: y.vz };
+    S.prev = { x: y.x, z: y.z, yaw: y.yaw };
+    S.pending = [];
+    S.lockN = 0;
+    S.err = { x: 0, z: 0 };
+  }
   if (y.id !== S.myId) {
     if (y.id) {
       S.pred = { x: y.x, z: y.z, yaw: y.yaw, vx: y.vx, vz: y.vz };
@@ -777,6 +860,7 @@ function renderBoard(el, rows) {
 }
 
 function showResult(rank) {
+  if (!S.ended && S.played) recordRound(rank);
   S.ended = true;
   $('board').hidden = true;
   const i = rank.findIndex((r) => r.pid === S.pid);
@@ -790,6 +874,32 @@ function showResult(rank) {
   $('result').hidden = false;
   $('dead').hidden = true;
   if (i === 0) sfx.good();
+}
+
+// ───────────────────────── 내 기록 ─────────────────────────
+function recordRound(rank) {
+  const i = rank.findIndex((r) => r.pid === S.pid);
+  if (i < 0) return;
+  const me = rank[i];
+  stats.games++;
+  if (i === 0) stats.wins++;
+  if (me.al) stats.survived++;
+  stats.kills += me.k;
+  stats.ai += me.a;
+  stats.best = Math.max(stats.best, me.k);
+  saveStats();
+}
+function renderStats() {
+  const pct = (n) => (stats.games ? `${Math.round((n / stats.games) * 100)}%` : '-');
+  const cells = [
+    ['판', stats.games],
+    ['우승', stats.wins],
+    ['우승률', pct(stats.wins)],
+    ['생존율', pct(stats.survived)],
+    ['잡은 플레이어', stats.kills],
+    ['한 판 최다', stats.best],
+  ];
+  $('statsList').innerHTML = cells.map(([k, v]) => `<div><b>${v}</b><small>${k}</small></div>`).join('');
 }
 
 // ───────────────────────── 관전 (잡힌 뒤) ─────────────────────────
@@ -812,7 +922,7 @@ function updateSpectate(now) {
   const p = S.spec.find((q) => q[0] === S.specId);
   S.specName = p[1];
   $('specName').textContent = p[1];
-  $('specInfo').textContent = `🔪 ${p[2]} · ${S.spec.indexOf(p) + 1}/${S.spec.length}`;
+  $('specInfo').textContent = S.played ? `🔪 ${p[2]} · ${S.spec.indexOf(p) + 1}/${S.spec.length}` : '다음 판부터 함께해요';
   $('specAgain').hidden = S.online;
 }
 function cycleSpec(d) {
@@ -833,13 +943,30 @@ function openSheet(id) {
   $(id).hidden = false;
 }
 function hideSheets() {
-  for (const id of ['help', 'settings', 'board', 'confirm', 'install']) $(id).hidden = true;
+  for (const id of ['help', 'settings', 'board', 'confirm', 'install', 'onlineSheet', 'stats']) $(id).hidden = true;
 }
 for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => (sfx.click(), (b.closest('.sheet').hidden = true)));
 
 $('nameIn').value = prefs.name;
 $('soloBtn').addEventListener('click', () => startSolo());
-$('onlineBtn').addEventListener('click', () => startOnline());
+$('onlineBtn').addEventListener('click', () => {
+  sfx.unlock();
+  sfx.click();
+  if (!serverOrigin()) return startOnline(); // 서버 주소가 없으면 설정으로 안내
+  openSheet('onlineSheet');
+});
+$('joinAny').addEventListener('click', () => (hideSheets(), startOnline('')));
+$('makeRoom').addEventListener('click', () => (hideSheets(), startOnline('new')));
+$('joinCode').addEventListener('click', () => {
+  const code = $('codeIn').value.replace(/\D/g, '').slice(0, 4);
+  if (code.length !== 4) {
+    $('codeIn').focus();
+    return toast('코드 4자리를 넣어 주세요', 'bad');
+  }
+  hideSheets();
+  startOnline(code);
+});
+$('statsBtn').addEventListener('click', () => (sfx.unlock(), sfx.click(), renderStats(), openSheet('stats')));
 $('helpBtn').addEventListener('click', () => (sfx.unlock(), sfx.click(), openSheet('help')));
 $('setBtn').addEventListener('click', () => (sfx.unlock(), sfx.click(), openSheet('settings')));
 $('boardBtn').addEventListener('click', () => {
@@ -870,6 +997,18 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => e.code === 'Tab' && S.mode === 'game' && ($('board').hidden = true));
 
 // 설정
+const LEVEL_NAME = { easy: '쉬움', normal: '보통', hard: '어려움' };
+const applyPrefs = () => {
+  document.body.classList.toggle('lefty', !!prefs.lefty);
+  input.lefty = !!prefs.lefty;
+  input.placeGhost();
+  $('soloState').textContent = `봇 7마리와 한 판 · ${LEVEL_NAME[prefs.level] || '보통'}`;
+};
+$('levelIn').value = LEVEL_NAME[prefs.level] ? prefs.level : 'normal';
+$('leftyIn').checked = !!prefs.lefty;
+$('levelIn').addEventListener('change', () => ((prefs.level = $('levelIn').value), savePrefs(), applyPrefs()));
+$('leftyIn').addEventListener('change', () => ((prefs.lefty = $('leftyIn').checked), savePrefs(), applyPrefs()));
+applyPrefs();
 $('sensIn').value = prefs.sens;
 $('volIn').value = prefs.vol;
 $('serverIn').value = prefs.server;
@@ -980,7 +1119,7 @@ function frame(t) {
 }
 
 startDemo();
-if (/[?&]debug\b/.test(location.search)) window.__kkokko = { S, input, camera, vis, renderer };
+if (/[?&]debug\b/.test(location.search)) window.__kkokko = { S, input, camera, vis, renderer, net: () => net };
 requestAnimationFrame((t) => {
   last = t;
   frame(t);

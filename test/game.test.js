@@ -342,6 +342,62 @@ test('온라인: 8명이 차면 새 방을 연다', () => {
   assert.equal(hub.rooms.length, 1);
 });
 
+test('온라인: 잠깐 끊겨도 같은 열쇠로 돌아오면 같은 닭, 일부러 나가면 봇이 이어받는다', () => {
+  const hub = new Hub();
+  const a = { send() {} };
+  const tok = 'abcdefgh12345678';
+  hub.handle(a, { t: 'join', name: '하나', tok });
+  const g = a.game;
+  const slot = a.slot;
+  const ent = slot.ent;
+  hub.leave(a); // 끊김
+  assert.equal(slot.bot, null, '자리를 맡아 둔다');
+  assert.equal(g.humanCount, 1);
+  const b = { send() {} };
+  hub.handle(b, { t: 'join', name: '하나', tok });
+  assert.equal(b.slot, slot);
+  assert.equal(slot.ent, ent, '같은 닭');
+  assert.equal(slot.session, b);
+  hub.leave(a); // 옛 연결이 늦게 끊겨도 아무 일 없다
+  assert.equal(slot.session, b);
+  // 망이 바뀌어 옛 연결이 살아 있는데 새 연결이 오면 넘겨받는다
+  const c = { send() {} };
+  hub.handle(c, { t: 'join', name: '하나', tok });
+  assert.equal(c.slot, slot);
+  assert.equal(b.slot, null);
+  // 일부러 나가면 바로 봇이 맡는다
+  hub.handle(c, { t: 'bye' });
+  assert.ok(slot.bot);
+  assert.equal(g.humanCount, 0);
+});
+
+test('온라인: 친구 방은 코드로만 들어가고, 없는 코드면 알려 준다', () => {
+  const hub = new Hub();
+  const got = [];
+  const a = { send: (m) => got.push(m) };
+  hub.handle(a, { t: 'join', name: '방장', room: 'new' });
+  const code = got.find((m) => m.t === 'room').code;
+  assert.match(code, /^\d{4}$/);
+  const b = { send() {} };
+  hub.handle(b, { t: 'join', name: '친구', room: code });
+  assert.equal(b.game, a.game);
+  const c = { send() {} };
+  hub.handle(c, { t: 'join', name: '모르는 사람' });
+  assert.notEqual(c.game, a.game, '아무 방으로 온 사람은 친구 방에 안 들어간다');
+  const errs = [];
+  const d = { send: (m) => errs.push(m) };
+  hub.handle(d, { t: 'join', name: 'x', room: code === '0000' ? '0001' : '0000' });
+  assert.equal(errs[0].t, 'err');
+  assert.equal(d.slot, undefined);
+});
+
+test('혼자 하기 난이도: 어려운 봇이 더 잘 알아챈다', () => {
+  const easy = new Game({ seed: 9, level: 'easy' });
+  const hard = new Game({ seed: 9, level: 'hard' });
+  const avg = (g) => g.slots.reduce((a, s) => a + s.bot.skill, 0) / g.slots.length;
+  assert.ok(avg(hard) > avg(easy) + 0.3);
+});
+
 test('이름 정리', () => {
   assert.equal(cleanName('  <b>닭</b>  '), 'b닭/b');
   assert.equal(cleanName('a'.repeat(30)).length, 12);

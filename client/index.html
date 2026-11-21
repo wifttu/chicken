@@ -30,6 +30,7 @@
         <div id="timer" class="chip">3:00</div>
         <div id="myScore" class="chip">⭐ <b>0</b></div>
         <div id="alive" class="chip" title="남은 플레이어">👤 <b>8</b></div>
+        <div id="roomChip" class="chip" hidden title="친구 방 코드"></div>
         <button id="boardBtn" class="chip icon" aria-label="점수표">🏆</button>
       </div>
       <div id="tags" aria-hidden="true"></div>
@@ -75,12 +76,13 @@
         <label for="nameIn">닉네임</label>
         <input id="nameIn" maxlength="12" placeholder="닭 이름 (비우면 자동)" autocomplete="off" />
         <div class="btns">
-          <button id="soloBtn" class="primary">혼자 하기<small>봇 7마리와 한 판</small></button>
+          <button id="soloBtn" class="primary">혼자 하기<small id="soloState">봇 7마리와 한 판</small></button>
           <button id="onlineBtn">온라인<small id="onlineState">확인하는 중…</small></button>
         </div>
         <div class="links">
           <button id="helpBtn">게임 방법</button>
           <button id="setBtn">설정</button>
+          <button id="statsBtn">내 기록</button>
           <button id="installBtn" hidden>📱 앱으로 설치</button>
         </div>
       </div>
@@ -127,6 +129,13 @@
     <section id="settings" class="sheet" hidden>
       <div class="panel">
         <h2>설정</h2>
+        <label for="levelIn">혼자 하기 난이도</label>
+        <select id="levelIn">
+          <option value="easy">쉬움: 봇이 눈치가 없어요</option>
+          <option value="normal">보통</option>
+          <option value="hard">어려움: 봇이 금방 알아채요</option>
+        </select>
+        <label class="check"><input id="leftyIn" type="checkbox" /> 왼손잡이 배치 (조이스틱 오른쪽, 버튼 왼쪽)</label>
         <label for="sensIn">둘러보기 감도</label>
         <input id="sensIn" type="range" min="0.4" max="2" step="0.1" />
         <label for="volIn">효과음 크기</label>
@@ -137,6 +146,30 @@
           <button id="serverSave">저장</button>
         </div>
         <p id="serverNote" class="note">게임 서버(npm start, Render)가 보여 주는 페이지에서는 비워 두어도 돼요.</p>
+        <button data-close class="primary">닫기</button>
+      </div>
+    </section>
+
+    <section id="onlineSheet" class="sheet" hidden>
+      <div class="panel small">
+        <h2>온라인</h2>
+        <button id="joinAny" class="primary">아무 방에 들어가기</button>
+        <button id="makeRoom">친구 방 만들기</button>
+        <p class="note">방을 만들면 4자리 코드가 화면 위에 떠요. 친구에게 알려 주세요.</p>
+        <label for="codeIn">친구 방 코드</label>
+        <div class="row">
+          <input id="codeIn" inputmode="numeric" maxlength="4" placeholder="예: 1234" autocomplete="off" />
+          <button id="joinCode">들어가기</button>
+        </div>
+        <button data-close>닫기</button>
+      </div>
+    </section>
+
+    <section id="stats" class="sheet" hidden>
+      <div class="panel small">
+        <h2>내 기록</h2>
+        <div id="statsList" class="statgrid"></div>
+        <p class="note">이 휴대폰(브라우저)에만 저장돼요.</p>
         <button data-close class="primary">닫기</button>
       </div>
     </section>

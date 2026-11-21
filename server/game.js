@@ -15,7 +15,8 @@ const HOLD_INPUT = Object.freeze({ dx: 0, dz: 0, run: false, face: null, act: AC
 const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : 0);
 
 export class Game {
-  // opts: players(사람+봇 수), ai(AI 닭 수), autoRestart(결과 뒤 자동으로 다음 판), seed
+  // opts: players(사람+봇 수), ai(AI 닭 수), autoRestart(결과 뒤 자동으로 다음 판), seed,
+  //       level(봇 난이도 'easy' | 'normal' | 'hard'), code(친구 방 코드)
   constructor(opts = {}) {
     this.opts = { players: CFG.PLAYERS, ai: CFG.AI_COUNT, autoRestart: true, ...opts };
     this.rng = mulberry32(opts.seed ?? Math.floor(Math.random() * 2 ** 32));
@@ -94,7 +95,7 @@ export class Game {
 
   addBot() {
     const taken = new Set(this.slots.map((s) => s.name));
-    const s = this.newSlot(botName(this.rng, taken), new BotBrain(this.rng));
+    const s = this.newSlot(botName(this.rng, taken), new BotBrain(this.rng, this.opts.level));
     this.slots.push(s);
     return s;
   }
@@ -113,11 +114,27 @@ export class Game {
     return s;
   }
 
+  // 연결이 잠깐 끊겼다: 자리는 그대로 두고 메시지만 멈춘다 (닭은 입력이 없어 제자리에 선다)
+  detach(s) {
+    s.session = null;
+    s.inputs = [];
+  }
+
+  // 끊겼던 사람이 같은 자리로 돌아왔다
+  reattach(s, session) {
+    s.session = session;
+    s.inputs = [];
+    s.inbox.push({ t: 'hello', pid: s.pid, round: this.round });
+    if (this.phase === 'end') s.inbox.push({ t: 'end', rank: this.result });
+    this.boardDirty = true;
+  }
+
   // 사람이 나가면 봇이 그 닭을 이어받는다
   removeHuman(s) {
     if (s.bot) return;
-    s.bot = new BotBrain(this.rng);
+    s.bot = new BotBrain(this.rng, this.opts.level);
     s.session = null;
+    s.tok = null;
     s.name = botName(this.rng, new Set(this.slots.map((x) => x.name)));
     s.inbox = [];
     this.boardDirty = true;

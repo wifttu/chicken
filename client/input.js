@@ -71,7 +71,10 @@ export class Input {
     this.stick.style.display = show ? 'block' : 'none';
     this.stick.classList.toggle('ghost', show);
     if (show) {
-      this.stick.style.left = `max(${Math.round(Math.min(innerWidth, innerHeight) * 0.2 + 30)}px, calc(env(safe-area-inset-left, 0px) + 96px))`;
+      const off = Math.round(Math.min(innerWidth, innerHeight) * 0.2 + 30);
+      this.stick.style.left = this.lefty
+        ? `min(${innerWidth - off}px, calc(100% - env(safe-area-inset-right, 0px) - 96px))`
+        : `max(${off}px, calc(env(safe-area-inset-left, 0px) + 96px))`;
       this.stick.style.top = `${innerHeight - Math.round(Math.min(innerWidth, innerHeight) * 0.2 + 40)}px`;
     }
   }
@@ -89,7 +92,8 @@ export class Input {
     if (!this.enabled) return;
     const touch = e.pointerType !== 'mouse';
     // 관전 중(lookOnly)에는 화면 어디를 끌어도 둘러보기
-    if (touch && !this.lookOnly && e.clientX < innerWidth * 0.45 && this.moveId === null) {
+    const stickSide = this.lefty ? e.clientX > innerWidth * 0.55 : e.clientX < innerWidth * 0.45;
+    if (touch && !this.lookOnly && stickSide && this.moveId === null) {
       this.moveId = e.pointerId;
       this.origin = [e.clientX, e.clientY];
       this.stick.style.display = 'block';

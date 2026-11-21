@@ -50,7 +50,7 @@ export class Net {
             this.ws = null;
             this.onState('closed');
             // 로비에 있는 동안 끊기면 잠시 뒤 다시 붙는다 (친구 접속 상태, 초대를 받기 위해)
-            if (this.wanted) setTimeout(() => this.wanted && !this.ready && this.open(), 3000);
+            if (this.wanted) setTimeout(() => this.wanted && !this.ready && this.open(), 1000);
             return;
           }
           if (this.wanted && performance.now() < deadline) {

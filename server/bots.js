@@ -18,11 +18,19 @@ export function botName(rng, taken) {
   return `닭${Math.floor(rng() * 900 + 100)}`;
 }
 
+// 난이도: 감(사람을 알아채는 정도), 노릴 닭을 고르는 기준, 다시 고르는 간격
+const LEVELS = {
+  easy: { skill: [0.02, 0.15], bar: 0.9, pick: [3.5, 6.5] },
+  normal: { skill: [0.2, 0.55], bar: 0, pick: [2, 4.5] },
+  hard: { skill: [0.6, 0.9], bar: -0.5, pick: [1.2, 2.8] },
+};
+
 export class BotBrain {
-  constructor(rng) {
+  constructor(rng, level = 'normal') {
     this.rng = rng;
+    this.lv = LEVELS[level] || LEVELS.normal;
     this.ai = new AiBrain(rng);
-    this.skill = range(rng, 0.2, 0.55); // 사람 냄새를 맡는 감 (높을수록 정답을 잘 고른다)
+    this.skill = range(rng, ...this.lv.skill); // 사람 냄새를 맡는 감 (높을수록 정답을 잘 고른다)
     this.target = null;
     this.pickT = range(rng, 2, 5);
     this.lastTry = 0; // 마지막으로 찌르려 한 게임 시각
@@ -42,7 +50,7 @@ export class BotBrain {
   pickTarget(game, ent) {
     const rng = this.rng;
     const wait = game.time - this.lastTry;
-    let bestW = Math.max(0.3, 2.4 - wait / 12);
+    let bestW = Math.max(0.3, 2.4 + this.lv.bar - wait / 12);
     let best = null;
     for (const o of game.nearby(ent, 16)) {
       let w = o.sus + rng() * 0.9 - Math.hypot(o.x - ent.x, o.z - ent.z) * 0.03;
@@ -62,7 +70,7 @@ export class BotBrain {
 
     this.pickT -= dt;
     if (this.pickT <= 0) {
-      this.pickT = range(rng, 2, 4.5);
+      this.pickT = range(rng, ...this.lv.pick);
       const t = this.pickTarget(game, ent);
       if (t !== null) this.target = t;
     }

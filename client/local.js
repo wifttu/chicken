@@ -4,10 +4,10 @@ import { CFG } from './shared/config.js';
 import { Game } from './server/game.js';
 
 export class LocalLink {
-  constructor({ name, onMessage, demo = false }) {
+  constructor({ name, onMessage, demo = false, level = 'normal' }) {
     this.onMessage = onMessage;
     this.demo = demo;
-    this.game = new Game({ autoRestart: !!demo, players: demo ? 0 : CFG.PLAYERS, ai: demo ? 30 : CFG.AI_COUNT });
+    this.game = new Game({ autoRestart: !!demo, players: demo ? 0 : CFG.PLAYERS, ai: demo ? 30 : CFG.AI_COUNT, level });
     if (demo) {
       this.game.phase = 'play';
       this.game.timeLeft = 1e9;
