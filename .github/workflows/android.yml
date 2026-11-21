@@ -1,0 +1,51 @@
+name: Android APK
+
+# 푸시할 때마다 안드로이드 APK 를 만든다.
+# 기본 브랜치에서 만든 APK 는 "android-latest" 릴리스에 올라가 휴대폰에서 바로 받을 수 있다:
+#   https://github.com/<사용자>/<저장소>/releases/download/android-latest/kkokko-spy.apk
+on:
+  push:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:pages
+      - run: npx cap sync android
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk kkokko-spy.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kkokko-spy-apk
+          path: kkokko-spy.apk
+      - name: Publish to the android-latest release
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --cleanup-tag --yes || true
+          gh release create android-latest kkokko-spy.apk --prerelease --target "$GITHUB_SHA" \
+            --title "꼬꼬 스파이 안드로이드 (최신)" \
+            --notes "${GITHUB_REF_NAME} 브랜치 ${GITHUB_SHA::7} 에서 자동으로 만든 테스트용 APK 입니다. 휴대폰에서 받아 설치하세요 (출처를 알 수 없는 앱 설치 허용 필요)."

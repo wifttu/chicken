@@ -592,6 +592,10 @@ input[type='range'] {
   border-radius: 50%;
   background: rgba(33, 28, 56, 0.25);
 }
+#stick.ghost {
+  opacity: 0.45;
+  transition: opacity 0.2s;
+}
 #knob {
   position: absolute;
   left: 50%;

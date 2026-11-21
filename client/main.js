@@ -33,8 +33,14 @@ const savePrefs = () => {
 
 // ───────────────────────── 렌더러 ─────────────────────────
 const canvas = $('game');
+const MOBILE = matchMedia('(pointer: coarse)').matches;
+const IS_APP = !!window.Capacitor?.isNativePlatform?.(); // 안드로이드 앱(Capacitor) 안
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+// 해상도: 휴대폰은 최대 1.75배, 프레임이 떨어지면 스스로 낮춘다 (아래 adaptRes)
+const PR_CAP = MOBILE ? 1.75 : 2;
+let resScale = 1;
+const applyPixelRatio = () => renderer.setPixelRatio(Math.min(devicePixelRatio || 1, PR_CAP) * resScale);
+applyPixelRatio();
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false; // 그림자는 건물·나무뿐이라 한 번만 그린다
@@ -47,7 +53,7 @@ const sun = new THREE.DirectionalLight(0xfff0d6, 2.1);
 sun.position.set(-26, 34, -20);
 sun.castShadow = true;
 Object.assign(sun.shadow.camera, { left: -42, right: 42, top: 42, bottom: -42, near: 1, far: 120 });
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(MOBILE ? 1024 : 2048);
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.03;
 scene.add(sun);
@@ -200,6 +206,7 @@ function enterGame() {
   input.reset();
   hideSheets();
   goFullscreen();
+  keepAwake(true);
 }
 
 function exitGame() {
@@ -212,11 +219,27 @@ function exitGame() {
   hideSheets();
   $('menu').hidden = false;
   $('onlineState').textContent = onlineLabel();
+  keepAwake(false);
   startDemo();
 }
 
+// 게임 중에는 화면이 꺼지지 않게 (지원하는 브라우저만)
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock && document.visibilityState === 'visible') {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => (wakeLock = null));
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && S.mode === 'game' && keepAwake(true));
+
 function goFullscreen() {
-  if (!matchMedia('(pointer: coarse)').matches) return;
+  if (!MOBILE || IS_APP) return; // 앱은 처음부터 전체 화면
   const el = document.documentElement;
   try {
     const p = el.requestFullscreen?.({ navigationUI: 'hide' });
@@ -530,7 +553,7 @@ function render(dt, now) {
 function updateCamera(dt, now, ents, killerPos) {
   let tx;
   let tz;
-  let dist = 5.4;
+  let dist = 5.9;
   let pitch = input.pitch;
   if (S.mode === 'game' && S.myId && S.pred) {
     tx = S.pred.x + S.err.x;
@@ -539,7 +562,7 @@ function updateCamera(dt, now, ents, killerPos) {
     const b = ents.get(S.body);
     tx = b.x;
     tz = b.z;
-    dist = 6.5;
+    dist = 6.8;
     // 잠깐 뒤 범인 쪽으로 돌아본다
     if (killerPos && now - S.deadAt > 0.5) {
       const want = Math.atan2(killerPos.x - tx, killerPos.z - tz);
@@ -557,20 +580,21 @@ function updateCamera(dt, now, ents, killerPos) {
     pitch = 0.62;
     dist = 17;
   }
-  camTarget.set(tx, 1.0, tz);
+  const ty = S.mode === 'game' ? 1.35 : 1.0; // 닭 가슴 높이
+  camTarget.set(tx, ty, tz);
   const yaw = input.yaw;
   const hd = Math.cos(pitch) * dist;
-  desired.set(tx - Math.sin(yaw) * hd, 1.0 + Math.sin(pitch) * dist, tz - Math.cos(yaw) * hd);
+  desired.set(tx - Math.sin(yaw) * hd, ty + Math.sin(pitch) * dist, tz - Math.cos(yaw) * hd);
   // 건물에 가리면 카메라를 당긴다
   if (S.mode === 'game') {
     for (let i = 1; i <= 12; i++) {
       const t = i / 12;
       const x = lerp(tx, desired.x, t);
       const z = lerp(tz, desired.z, t);
-      const y = lerp(1.0, desired.y, t);
+      const y = lerp(ty, desired.y, t);
       if (blocked(x, z, 0.25, y - 0.3)) {
         const k = Math.max(0.25, (i - 1) / 12);
-        desired.set(lerp(tx, desired.x, k), lerp(1.0, desired.y, k) + 0.3, lerp(tz, desired.z, k));
+        desired.set(lerp(tx, desired.x, k), lerp(ty, desired.y, k) + 0.3, lerp(tz, desired.z, k));
         break;
       }
     }
@@ -682,7 +706,7 @@ function openSheet(id) {
   $(id).hidden = false;
 }
 function hideSheets() {
-  for (const id of ['help', 'settings', 'board', 'confirm']) $(id).hidden = true;
+  for (const id of ['help', 'settings', 'board', 'confirm', 'install']) $(id).hidden = true;
 }
 for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => (sfx.click(), (b.closest('.sheet').hidden = true)));
 
@@ -752,9 +776,62 @@ fetch(new URL('healthz', location.href), { cache: 'no-store' })
 // 첫 터치에 소리 켜기 (브라우저 정책)
 addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 
+// ───────────────────────── 휴대폰: 앱 설치, 뒤로 가기 ─────────────────────────
+let installEvent = null;
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installEvent = e;
+  if (!OFFLINE_ONLY) $('installBtn').hidden = false;
+});
+if (IOS && !STANDALONE && !IS_APP && !OFFLINE_ONLY) $('installBtn').hidden = false;
+$('installBtn').addEventListener('click', async () => {
+  sfx.click();
+  if (installEvent) {
+    installEvent.prompt();
+    const r = await installEvent.userChoice.catch(() => null);
+    if (r?.outcome === 'accepted') $('installBtn').hidden = true;
+    installEvent = null;
+  } else openSheet('install');
+});
+addEventListener('appinstalled', () => ($('installBtn').hidden = true));
+
+// 안드로이드 앱의 뒤로 가기: 열린 창 닫기 → 게임 중이면 나가기 확인 → 메뉴면 앱 끄기
+const NativeApp = window.Capacitor?.Plugins?.App;
+NativeApp?.addListener?.('backButton', () => {
+  const open = [...document.querySelectorAll('.sheet')].find((el) => !el.hidden && el.id !== 'result');
+  if (open) open.hidden = true;
+  else if (S.mode === 'game') openSheet('confirm');
+  else NativeApp.exitApp();
+});
+
 // ───────────────────────── 루프 ─────────────────────────
 let last = performance.now();
 let acc = 0;
+// 프레임이 낮으면 해상도를 낮추고, 넉넉하면 천천히 되돌린다
+let fpsT = 0;
+let fpsN = 0;
+let fpsGood = 0;
+function adaptRes(dt) {
+  fpsT += dt;
+  fpsN++;
+  if (fpsT < 2) return;
+  const fps = fpsN / fpsT;
+  fpsT = fpsN = 0;
+  if (document.visibilityState !== 'visible') return;
+  if (fps < 40 && resScale > 0.55) {
+    resScale = Math.max(0.55, resScale - 0.15);
+    fpsGood = 0;
+    applyPixelRatio();
+    resize();
+  } else if (fps > 57 && resScale < 1 && ++fpsGood >= 2) {
+    resScale = Math.min(1, resScale + 0.1);
+    fpsGood = 0;
+    applyPixelRatio();
+    resize();
+  }
+}
 function frame(t) {
   requestAnimationFrame(frame);
   const now = t / 1000;
@@ -770,6 +847,7 @@ function frame(t) {
   }
   render(dt, now);
   updateHud(dt, now);
+  adaptRes(dt);
 }
 
 startDemo();
@@ -780,6 +858,6 @@ requestAnimationFrame((t) => {
   $('loading').hidden = true;
 });
 
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude|anthropic/.test(location.hostname)) {
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !IS_APP && !/claude|anthropic/.test(location.hostname)) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

@@ -1,0 +1,9 @@
+{
+  "appId": "com.kkokkospy.game",
+  "appName": "꼬꼬 스파이",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#2a2447",
+    "allowMixedContent": false
+  }
+}

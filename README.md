@@ -2,9 +2,10 @@
 
 **닭들 틈에 숨어 AI 인 척 연기하고, 진짜 플레이어를 찾아 칼로 찔러라.**
 마을에는 똑같이 생긴 닭 50마리가 돌아다닌다. 대부분은 AI 고, 8마리만 플레이어(사람 또는 봇)다.
+닭은 사람처럼 두 발로 서서 팔을 흔들며 걷고, 오른손에 칼을 쥐고 있다.
 걸음걸이·속도·모양이 모두 같아서 겉모습으로는 구별할 수 없다. 행동으로 들키고, 행동으로 찾아낸다.
 
-- 클라이언트: Three.js(WebGL) — 모바일 브라우저에서 바로 실행, 홈 화면에 앱으로 설치 가능(PWA)
+- 클라이언트: Three.js(WebGL) — 모바일 브라우저에서 바로 실행, 홈 화면에 앱으로 설치 가능(PWA), 안드로이드 APK(Capacitor)
 - 서버: Node.js + `ws` — 권위 서버(30Hz 시뮬레이션, 15Hz 스냅샷)
 - 빌드 단계 없음. 3D 모델·그림·소리 모두 코드로 만든다(외부 에셋 없음)
 
@@ -79,15 +80,49 @@ npm test
 ```
 shared/   config.js(수치) map.js(맵·충돌) sim.js(이동, 서버·클라이언트 공용) rng.js
 server/   game.js(한 판의 권위 시뮬레이션) ai.js(AI 닭) bots.js(봇) hub.js(온라인 방) index.js(HTTP + WebSocket)
-client/   main.js(화면·예측·보간·HUD) chickens.js(닭: InstancedMesh 5개) world.js(마을) fx.js(연기·깃털·표시)
+client/   main.js(화면·예측·보간·HUD) chickens.js(사람형 닭: InstancedMesh 6개) world.js(마을) fx.js(연기·깃털·표시)
           input.js audio.js net.js local.js(혼자 하기) index.html style.css
 test/     game.test.js
+android/  Capacitor 안드로이드 프로젝트 (MainActivity: 전체 화면·화면 켜짐 유지, 가로 고정, 아이콘·시작 화면)
 ```
 
 - 내 닭은 입력을 보내자마자 같은 `stepChicken` 으로 미리 움직이고(예측), 서버가 확인한 입력 번호(`ack`) 뒤의 입력만 다시 돌려 맞춘다.
 - 다른 닭은 120ms 늦게, 서버 틱 번호를 기준으로 두 스냅샷 사이를 이어 그린다.
-- 닭 50마리를 부위별 InstancedMesh(몸통·날개·다리·칼·그림자)로 그려 드로우콜이 5번이다. 마을은 꼭짓점 색을 입힌 메시 몇 개로 합쳤고,
+- 닭 50마리를 부위별 InstancedMesh(몸통+머리·팔·허벅지·정강이+발·칼·그림자)로 그려 드로우콜이 6번이다.
+  뼈대는 뿌리 → 엉덩이 → 몸통 → 어깨 → 팔 → 손 → 칼, 엉덩이 → 허벅지 → 무릎 → 정강이 순서로 행렬을 곱해 만든다. 마을은 꼭짓점 색을 입힌 메시 몇 개로 합쳤고,
   건물 그림자는 처음에 한 번만 그린다.
+
+## 휴대폰으로 하기
+
+### 안드로이드 앱 (APK)
+
+푸시할 때마다 `.github/workflows/android.yml` 이 테스트 → `npm run build:pages` → `npx cap sync android` → Gradle 로 APK 를 만든다.
+
+- 기본 브랜치에서 만든 APK 는 **android-latest** 릴리스에 올라간다. 휴대폰에서 이 주소를 열어 받으면 된다:
+  `https://github.com/wifttu/chicken/releases/download/android-latest/kkokko-spy.apk`
+- 다른 브랜치의 APK 는 Actions 실행 화면의 Artifacts(`kkokko-spy-apk`)에서 받는다.
+- 처음 설치할 때 "출처를 알 수 없는 앱 설치"를 허용해야 한다. 플레이 스토어 앱이 아니라서 Play 프로텍트가 한 번 물어볼 수 있다.
+- 앱은 가로 화면 전체(상태 표시줄·내비게이션 바 숨김)로 열리고, 하는 동안 화면이 꺼지지 않는다. 뒤로 가기는 열린 창 닫기 → 게임 나가기 확인 → 앱 끄기 순서.
+- 서명은 저장소에 둔 공개 디버그 키(`android/app/debug.keystore`, 비밀번호 `android`)라서 새 APK 가 이전 것 위에 덮어 설치된다.
+  플레이 스토어에 올리려면 따로 만든 비공개 키로 release 빌드를 서명해야 한다.
+- 앱 안에서 온라인을 하려면 `client/settings.js` 의 `DEFAULT_SERVER` 에 Render 서버 주소를 넣거나 게임 설정에 붙여 넣는다.
+
+직접 빌드하려면 Android Studio(또는 Android SDK)와 JDK 21 이 필요하다.
+
+```bash
+npm run android                 # dist 를 만들고 android 프로젝트에 복사
+cd android && ./gradlew assembleDebug   # android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 아이폰 · 브라우저
+
+Safari 공유 버튼 → **홈 화면에 추가**, 안드로이드 Chrome 은 메뉴 → **앱 설치**. 메뉴의 "📱 앱으로 설치" 버튼이 안내한다.
+
+### 휴대폰에 맞춘 것
+
+- 왼쪽 아래에 흐린 조이스틱이 늘 보이고, 화면 왼쪽 어디를 눌러도 그 자리에서 조이스틱이 시작된다.
+- 해상도는 최대 1.75배에서 시작해 프레임이 40 아래로 떨어지면 스스로 낮추고(최저 0.55배), 넉넉해지면 되돌린다. 그림자 지도는 1024.
+- 게임 중에는 화면 꺼짐 방지(Wake Lock), 전체 화면·가로 고정을 시도한다. 찌르기·잡힘에 진동.
 
 ## 배포
 

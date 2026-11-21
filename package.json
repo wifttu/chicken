@@ -1,17 +1,26 @@
 {
   "name": "kkokko-spy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI 닭들 사이에 숨어 진짜 플레이어를 찾아 찌르는 3D 멀티플레이 게임",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test",
-    "build:pages": "node scripts/build-pages.mjs"
+    "build:pages": "node scripts/build-pages.mjs",
+    "android": "npm run build:pages && npx cap sync android"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "three": "^0.170.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
   }
 }

@@ -21,7 +21,10 @@ export class Input {
     this.knob = knob;
     this.buttons = buttons;
     this.sens = 1;
-    this.enabled = false;
+    this._enabled = false;
+    // 터치 기기에서는 손을 떼고 있어도 왼쪽 아래에 흐린 조이스틱을 보여 준다 (어디서 누르든 그 자리에서 시작)
+    this.ghost = matchMedia('(pointer: coarse)').matches;
+    addEventListener('resize', () => this.placeGhost());
 
     surface.addEventListener('pointerdown', (e) => this.down(e));
     addEventListener('pointermove', (e) => this.move(e));
@@ -52,6 +55,27 @@ export class Input {
     addEventListener('blur', () => this.keys.clear());
   }
 
+  get enabled() {
+    return this._enabled;
+  }
+
+  set enabled(v) {
+    this._enabled = v;
+    this.placeGhost();
+  }
+
+  placeGhost() {
+    if (this.moveId !== null) return;
+    this.knob.style.transform = 'translate(-50%, -50%)';
+    const show = this.ghost && this._enabled;
+    this.stick.style.display = show ? 'block' : 'none';
+    this.stick.classList.toggle('ghost', show);
+    if (show) {
+      this.stick.style.left = `max(${Math.round(Math.min(innerWidth, innerHeight) * 0.2 + 30)}px, calc(env(safe-area-inset-left, 0px) + 96px))`;
+      this.stick.style.top = `${innerHeight - Math.round(Math.min(innerWidth, innerHeight) * 0.2 + 40)}px`;
+    }
+  }
+
   setRun(v) {
     this.runToggle = v;
     this.buttons.run.classList.toggle('on', v);
@@ -68,6 +92,7 @@ export class Input {
       this.moveId = e.pointerId;
       this.origin = [e.clientX, e.clientY];
       this.stick.style.display = 'block';
+      this.stick.classList.remove('ghost');
       this.stick.style.left = `${e.clientX}px`;
       this.stick.style.top = `${e.clientY}px`;
       this.touchMx = this.touchMz = 0;
@@ -101,8 +126,7 @@ export class Input {
     if (e.pointerId === this.moveId) {
       this.moveId = null;
       this.touchMx = this.touchMz = 0;
-      this.stick.style.display = 'none';
-      this.knob.style.transform = 'translate(-50%, -50%)';
+      this.placeGhost();
       if (this.runToggle) this.setRun(false); // 손을 떼면 달리기도 끝
     } else if (e.pointerId === this.lookId) this.lookId = null;
   }
@@ -110,7 +134,7 @@ export class Input {
   reset() {
     this.moveId = this.lookId = null;
     this.touchMx = this.touchMz = 0;
-    this.stick.style.display = 'none';
+    this.placeGhost();
     this.setRun(false);
     for (const k in this.acts) this.acts[k] = false;
   }
