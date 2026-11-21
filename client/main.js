@@ -252,12 +252,14 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 
 function goFullscreen() {
   if (!MOBILE || IS_APP) return; // 앱은 처음부터 전체 화면
-  const el = document.documentElement;
+  if (document.fullscreenElement) return;
   try {
-    const p = el.requestFullscreen?.({ navigationUI: 'hide' });
+    const p = document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
     p?.then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
   } catch {}
 }
+// 주소창·내비게이션 바가 다시 나타나면(화면 가장자리를 쓸어서 풀린 경우 등) 다음에 화면을 건드릴 때 다시 전체 화면으로
+for (const ev of ['pointerup', 'touchend']) addEventListener(ev, () => S.mode === 'game' && goFullscreen(), { passive: true });
 
 // ───────────────────────── 메시지 ─────────────────────────
 function onMessage(m) {
