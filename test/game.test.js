@@ -60,7 +60,7 @@ test('스냅샷에는 누가 플레이어인지 드러나지 않는다', () => {
   assert.equal(typeof m.y.id, 'number', '내 닭은 알려 준다');
 });
 
-test('AI 를 찔러도 점수는 그대로, 대신 들킴, 칼 늦게 돌아옴', () => {
+test('AI 를 찔러도 점수는 그대로, 아무 표시도 없음, 칼만 늦게 돌아옴', () => {
   const { g, s, got } = withHuman();
   play(g);
   const e = entOf(g, s);
@@ -72,13 +72,15 @@ test('AI 를 찔러도 점수는 그대로, 대신 들킴, 칼 늦게 돌아옴'
   assert.equal(a.alive, false);
   assert.equal(s.score, 2, '점수를 깎지 않는다');
   assert.equal(s.aiKills, 1);
-  assert.ok(e.exposedT > CFG.EXPOSE_TIME - 0.1);
   assert.ok(e.cd > CFG.STAB_TIME, '칼은 멈춤보다 늦게 돌아온다');
   g.broadcast();
   const ev = got.at(-1).ev;
-  assert.ok(ev.some((x) => x.t === 'feed' && x.v === null));
-  assert.ok(ev.some((x) => x.t === 'oops'));
-  assert.equal(got.at(-1).e[got.at(-1).e.indexOf(e.id) + 4] & 8, 8, '❗ 표시가 실린다');
+  assert.ok(!ev.some((x) => x.t === 'feed'), '킬 소식에도 안 뜬다');
+  assert.ok(ev.some((x) => x.t === 'oops'), '찌른 사람에게만 알려 준다');
+  for (let i = 0; i < STAB_TICKS + 2; i++) g.step();
+  g.broadcast();
+  const snap = got.at(-1).e;
+  assert.equal(snap[snap.indexOf(e.id) + 4], ANIM.IDLE, '머리 위 표시 없이 평범한 닭으로 보인다');
 });
 
 test('플레이어를 찌르면 +1점, 잡힌 쪽은 3초 뒤 문 앞에서 새 닭으로 태어난다', () => {
@@ -161,7 +163,7 @@ test('달리기는 플레이어만: 한 판 내내 AI 닭은 한 번도 뛰지 �
   assert.ok(Math.hypot(entOf(g2, s).vx, entOf(g2, s).vz) > CFG.RUN - 0.05);
 });
 
-test('찌르면 2초 동안 그 자리에 멈춰 칼질을 하고, 그동안 다시 못 찌른다', () => {
+test('찌르면 1초 동안 그 자리에 멈춰 칼을 한 번 찌르고, 그동안 다시 못 찌른다', () => {
   const { g, s } = withHuman();
   play(g);
   const e = entOf(g, s);
@@ -173,7 +175,7 @@ test('찌르면 2초 동안 그 자리에 멈춰 칼질을 하고, 그동안 다
   g.step();
   assert.equal(e.vx, 0, '그 자리에 딱 멈춘다');
   for (let i = 1; i < STAB_TICKS; i++) {
-    send(1, i === 20 ? ACT.STAB : 0);
+    send(1, i === 10 ? ACT.STAB : 0);
     g.step();
     if (i < STAB_TICKS - 1) assert.equal(g.animOf(e) & 7, ANIM.STAB);
   }
@@ -181,12 +183,12 @@ test('찌르면 2초 동안 그 자리에 멈춰 칼질을 하고, 그동안 다
   assert.equal(e.sus >= 4 && e.sus < 8, true, '멈춘 동안 누른 찌르기는 무시된다');
   send(1);
   g.step();
-  assert.ok(e.x > x0, '2초가 지나면 다시 움직인다');
+  assert.ok(e.x > x0, '1초가 지나면 다시 움직인다');
   assert.notEqual(g.animOf(e) & 7, ANIM.STAB);
 });
 
 test('휴대폰 예측과 서버가 어긋나지 않는다 (입력이 늦게 오거나 몰려 와도)', () => {
-  const { g, s } = withHuman();
+  const { g, s } = withHuman({ players: 1 }); // 봇에게 찔리지 않게 혼자
   play(g);
   const e = entOf(g, s);
   const pred = { x: e.x, z: e.z, yaw: e.yaw, vx: e.vx, vz: e.vz };

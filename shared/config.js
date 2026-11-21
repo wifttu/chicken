@@ -20,14 +20,12 @@ export const CFG = {
 
   STAB_RANGE: 1.65, // 칼이 닿는 거리 (몸 중심끼리)
   STAB_ANGLE: 1.0, // 정면 기준 좌우 허용 각 (rad, 약 57도)
-  STAB_TIME: 2.0, // 찌르기 동작: 이 시간 동안 제자리에 멈춰 칼을 여러 번 찌른다 (움직이지도 돌지도 못한다).
+  STAB_TIME: 1.0, // 찌르기: 이 시간 동안 제자리에 멈춰 칼을 한 번 찌른다 (움직이지도 돌지도 못한다).
   //                 멈춤이 풀리면 바로 다시 찌를 수 있다 (따로 쿨다운 없음)
-  STAB_HIT: 0.5, // 찌르는 한 번의 길이 (STAB_TIME 동안 되풀이, 첫 번째에 맞는다)
 
   PECK_TIME: 0.7, // 쪼기 동작
   FLAP_TIME: 0.9, // 퍼덕이기 동작
 
-  EXPOSE_TIME: 4, // AI 를 찌르면 머리 위에 ❗ 가 뜨는 시간
   PENALTY_CD: 2.5, // AI 를 찌른 뒤 칼을 다시 쓸 수 있을 때까지
 
   RESPAWN: 3, // 잡힌 뒤 다시 태어날 때까지
@@ -40,7 +38,6 @@ export const CFG = {
 export const STAB_TICKS = Math.round(CFG.STAB_TIME * CFG.TICK_RATE);
 
 export const ANIM = { IDLE: 0, WALK: 1, RUN: 2, PECK: 3, FLAP: 4, STAB: 5, DEAD: 6 };
-export const EXPOSED_BIT = 8;
 
 // 손으로 하는 동작 (입력 a 값)
 export const ACT = { NONE: 0, STAB: 1, PECK: 2, FLAP: 3 };

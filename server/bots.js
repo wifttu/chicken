@@ -58,23 +58,7 @@ export class BotBrain {
   think(game, ent, dt) {
     const rng = this.rng;
     // 놀람(근처에서 누가 잡힘)·찌른 뒤 빠져나가기는 AI 와 똑같이 걷는다. 뛰면 플레이어인 게 들키니까.
-    // 다만 이미 들켰으면(머리 위 ❗) 숨길 것이 없으니 사람 없는 쪽으로 뛴다.
-    if (ent.exposedT > 0 && ent.panicT <= 0 && rng() < 0.08) {
-      const near = game.nearby(ent, 6);
-      let fx = 0;
-      let fz = 0;
-      for (const o of near) {
-        fx += ent.x - o.x;
-        fz += ent.z - o.z;
-      }
-      const l = Math.hypot(fx, fz) || 1;
-      game.panic(ent, fx / l, fz / l, range(rng, 1, 1.8));
-    }
-    if (ent.panicT > 0) {
-      const out = this.ai.think(game, ent, dt);
-      out.run = ent.exposedT > 0;
-      return out;
-    }
+    if (ent.panicT > 0) return this.ai.think(game, ent, dt);
 
     this.pickT -= dt;
     if (this.pickT <= 0) {

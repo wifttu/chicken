@@ -1,6 +1,6 @@
 // 꼬꼬 스파이 클라이언트: 렌더링, 내 닭 예측, 다른 닭 보간, 화면 표시(HUD), 메뉴.
 import * as THREE from 'three';
-import { ACT, ANIM, CFG, EXPOSED_BIT, STAB_TICKS, wrapAngle } from './shared/config.js';
+import { ACT, ANIM, CFG, STAB_TICKS, wrapAngle } from './shared/config.js';
 import { blocked } from './shared/map.js';
 import { stepChicken } from './shared/sim.js';
 import { buildWorld, SKY } from './world.js';
@@ -101,7 +101,6 @@ const S = {
   err: { x: 0, z: 0 }, // 서버 보정으로 생긴 차이 (조금씩 줄인다)
   cd: 0,
   lockN: 0, // 찌르는 중: 남은 멈춤 (입력 수, 서버와 똑같이 센다)
-  ex: 0,
   rs: 0,
   killerId: null,
   killerName: '',
@@ -317,7 +316,6 @@ function onYou(y) {
   S.body = y.body ?? null;
   S.rs = y.rs ?? 0;
   S.cd = y.cd ?? 0;
-  S.ex = y.ex ?? 0;
 }
 
 function onEvent(ev) {
@@ -326,7 +324,7 @@ function onEvent(ev) {
       addFeed(ev.k, ev.v);
       break;
     case 'oops':
-      toast('AI 를 찔렀어요! 머리 위에 ❗ 가 떴어요', 'bad');
+      toast(`AI 였어요 · 칼을 ${CFG.PENALTY_CD}초 동안 못 써요`, 'bad');
       sfx.bad();
       buzz([60, 40, 60]);
       break;
@@ -426,7 +424,6 @@ function myCode(now) {
     const sp = Math.hypot(S.pred.vx, S.pred.vz);
     code = sp > 3.2 ? ANIM.RUN : sp > 0.25 ? ANIM.WALK : ANIM.IDLE;
   }
-  if (S.ex > 0) code |= EXPOSED_BIT;
   return code;
 }
 
@@ -491,7 +488,6 @@ function render(dt, now) {
   }
 
   chickens.begin();
-  fx.beginMarks();
   let killerPos = null;
   for (const [id, e] of ents) {
     let v = vis.get(id);
@@ -518,7 +514,6 @@ function render(dt, now) {
         sfx.stab(dist);
       } else if (anim === ANIM.PECK || anim === ANIM.FLAP || anim === ANIM.STAB) {
         v.animAt = now;
-        v.hitN = 0;
         if (anim === ANIM.FLAP) {
           sfx.flap(dist);
           fx.puff(x, 0.2, z, 0.6, { life: 0.6 });
@@ -529,14 +524,6 @@ function render(dt, now) {
         }
       }
       v.anim = anim;
-    } else if (anim === ANIM.STAB) {
-      // 멈춰 서서 몇 번 더 찌른다: 찌를 때마다 칼바람
-      const n = Math.floor((now - v.animAt) / CFG.STAB_HIT);
-      if (n > v.hitN && n * CFG.STAB_HIT < CFG.STAB_TIME - 0.1) {
-        v.hitN = n;
-        fx.slash(x, z, yaw);
-        sfx.whiff(mine ? 0 : dist);
-      }
     }
     const moved = Math.hypot(x - v.px, z - v.pz);
     v.phase += Math.min(moved, 1) * 5.6;
@@ -554,7 +541,6 @@ function render(dt, now) {
     v.px = x;
     v.pz = z;
     const head = chickens.draw({ x, z, yaw, anim, at: now - v.animAt, phase: v.phase, seed: v.seed, deadAt: now - v.deadAt });
-    if (head && code & EXPOSED_BIT && anim !== ANIM.DEAD) fx.exclaim(head, now);
     if (mine) {
       fx.meRing.visible = true;
       fx.meRing.position.set(x, 0.05, z);
@@ -570,7 +556,6 @@ function render(dt, now) {
   }
   if (!(S.myId && S.pred)) fx.meRing.visible = false;
   chickens.end();
-  fx.endMarks();
 
   // 범인 표시 (잡힌 동안)
   fx.badRing.visible = fx.arrow.visible = !!killerPos;
@@ -715,7 +700,6 @@ function updateHud(dt, now) {
   const total = S.cd > 0.05 ? CFG.PENALTY_CD : CFG.STAB_TIME;
   $('cdMask').style.setProperty('--p', left > 0.05 ? `${Math.min(1, left / total) * 360}deg` : '0deg');
   $('stab').classList.toggle('cool', left > 0.05);
-  $('exposed').hidden = !(S.ex > 0 && S.myId);
   if (!$('dead').hidden) $('respawn').textContent = S.rs > 0 ? `${S.rs.toFixed(1)}초 뒤 다시 태어나요` : '';
   $('pad').classList.toggle('off', !(S.myId && S.phase === 'play'));
 }

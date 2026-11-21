@@ -1,4 +1,4 @@
-// 효과: 소용돌이 연기 구름(뛸 때, 쓰러질 때), 깃털, 칼 휘두름, 머리 위 표시(❗, 범인 화살표), 내 닭 발밑 고리.
+// 효과: 소용돌이 연기 구름(뛸 때, 쓰러질 때), 깃털, 칼 휘두름, 범인 화살표, 내 닭 발밑 고리.
 import * as THREE from 'three';
 
 function canvasTex(size, draw) {
@@ -44,27 +44,6 @@ function puffTexture() {
     }
     g.stroke();
     void S;
-  });
-}
-
-function badgeTexture(text, bg) {
-  return canvasTex(128, (g) => {
-    g.fillStyle = 'rgba(0,0,0,0.25)';
-    g.beginPath();
-    g.arc(66, 68, 50, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = bg;
-    g.strokeStyle = '#fff';
-    g.lineWidth = 8;
-    g.beginPath();
-    g.arc(64, 64, 48, 0, Math.PI * 2);
-    g.fill();
-    g.stroke();
-    g.fillStyle = '#fff';
-    g.font = 'bold 78px system-ui, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(text, 64, 70);
   });
 }
 
@@ -140,18 +119,7 @@ export class Fx {
       this.slashes.push({ s, life: 0 });
     }
 
-    // 머리 위 표시
-    const exTex = badgeTexture('!', '#ff3b4a');
-    this.marks = [];
-    for (let i = 0; i < 12; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: exTex, transparent: true, depthTest: false }));
-      s.scale.setScalar(0.62);
-      s.visible = false;
-      s.renderOrder = 10;
-      scene.add(s);
-      this.marks.push(s);
-    }
-    this.mi = 0;
+    // 범인 화살표 (잡힌 동안)
     this.arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: arrowTexture(), transparent: true, depthTest: false }));
     this.arrow.scale.setScalar(0.7);
     this.arrow.renderOrder = 10;
@@ -206,21 +174,6 @@ export class Fx {
     s.s.scale.setScalar(1.3);
     s.s.material.rotation = Math.random() * 0.6 - 0.3;
     s.s.visible = true;
-  }
-
-  beginMarks() {
-    this.mi = 0;
-  }
-
-  exclaim(pos, t) {
-    if (this.mi >= this.marks.length) return;
-    const s = this.marks[this.mi++];
-    s.visible = true;
-    s.position.set(pos.x, pos.y + 0.25 + Math.abs(Math.sin(t * 6)) * 0.12, pos.z);
-  }
-
-  endMarks() {
-    for (let i = this.mi; i < this.marks.length; i++) this.marks[i].visible = false;
   }
 
   update(dt, t) {
