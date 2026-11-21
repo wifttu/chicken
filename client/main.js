@@ -763,7 +763,7 @@ function updateHud(dt, now) {
   $('cdMask').style.setProperty('--p', left > 0.05 ? `${Math.min(1, left / total) * 360}deg` : '0deg');
   $('stab').classList.toggle('cool', left > 0.05);
   $('pad').classList.toggle('off', !(S.myId && S.phase === 'play'));
-  $('hud').classList.toggle('out', !S.myId && S.phase === 'play' && S.snaps.length > 0); // 잡혔다
+  $('hud').classList.toggle('out', (!S.myId && S.phase === 'play' && S.snaps.length > 0) || S.phase === 'end'); // 잡혔거나 판이 끝났다
 }
 
 function renderBoard(el, rows) {
