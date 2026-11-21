@@ -739,7 +739,10 @@ $('serverSave').addEventListener('click', () => {
 
 // 이 페이지를 게임 서버가 직접 보여 주는지 (그러면 온라인은 같은 주소로)
 let servedByGameServer = false;
-const onlineLabel = () => (servedByGameServer || serverOrigin() ? '친구들과 같은 마을에서' : '서버 주소 필요');
+// 서버에 접속할 수 없는 곳(미리보기 페이지 등)은 <meta name="kkokko-offline"> 로 온라인을 끈다
+const OFFLINE_ONLY = !!document.querySelector('meta[name="kkokko-offline"]');
+if (OFFLINE_ONLY) $('onlineBtn').disabled = true;
+const onlineLabel = () => (OFFLINE_ONLY ? '이 페이지에서는 혼자 하기만' : servedByGameServer || serverOrigin() ? '친구들과 같은 마을에서' : '서버 주소 필요');
 fetch(new URL('healthz', location.href), { cache: 'no-store' })
   .then((r) => (r.ok ? r.text() : ''))
   .then((t) => (servedByGameServer = t.trim() === 'ok'))
