@@ -113,6 +113,50 @@ export class Sfx {
     o.stop(t + dur + 0.03);
   }
 
+  // 닭 울음 한 글자: "꼬" 또는 "꼭"
+  //  - 앞: "ㄲ" 하고 터지는 짧은 소리
+  //  - 가운데: "오" 모음 (높은 닭 목소리를 어두운 두 울림으로 거른다), 높이는 살짝 올랐다 떨어진다
+  //  - 끝: stop 이면 "ㄱ" 처럼 뚝 끊고 작게 딸깍 (꼭), 아니면 부드럽게 사라진다 (꼬)
+  kok({ f = 480, dur = 0.07, gain = 0.2, delay = 0, stop = false, k = 1 }) {
+    if (!this.ok || gain * k < 0.003) return;
+    const c = this.ctx;
+    const t = c.currentTime + delay;
+    const v = gain * k * this.vol;
+    // ㄲ
+    this.noise({ dur: 0.012, gain: gain * k * 0.9, f: 2600, q: 1.3, delay });
+    // 오
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f * 0.92, t);
+    o.frequency.linearRampToValueAtTime(f * 1.15, t + dur * 0.35);
+    o.frequency.exponentialRampToValueAtTime(f * 0.82, t + dur);
+    const g = c.createGain();
+    const t1 = t + 0.006;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t1);
+    if (stop) {
+      g.gain.setValueAtTime(v, t + dur - 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); // 뚝
+    } else {
+      g.gain.setValueAtTime(v, t + dur * 0.55); // 잠깐 울리다가
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur); // 스르르
+    }
+    for (const [type, freq, q, amt] of [['bandpass', 780, 4, 2.4], ['bandpass', 1250, 5, 1.6], ['lowpass', 1700, 0.7, 0.35]]) {
+      const flt = c.createBiquadFilter();
+      flt.type = type;
+      flt.frequency.value = freq * (f / 480) ** 0.5;
+      flt.Q.value = q;
+      const m = c.createGain();
+      m.gain.value = amt;
+      o.connect(flt).connect(m).connect(g);
+    }
+    g.connect(this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+    // ㄱ (끝을 막는 작은 딸깍)
+    if (stop) this.noise({ dur: 0.008, gain: gain * k * 0.35, f: 1800, q: 2, delay: delay + dur - 0.004 });
+  }
+
   // 주변 닭이 가끔: "꼭 꼭 (꼬댁)"
   cluck(d = 0) {
     const k = this.near(d);
@@ -137,12 +181,12 @@ export class Sfx {
     this.tone({ type: 'triangle', f0: 240, f1: 70, dur: 0.14, gain: 0.3 * k, delay: 0.05 });
   }
 
-  // 찌르는 닭의 기합: "꽤액!"
+  // 찌르는 닭: 짧고 힘 있게 "꼬꼭!"
   battle(d = 0) {
     const k = this.near(d);
-    const p = 0.92 + Math.random() * 0.16;
-    this.voice({ f: [620 * p, 1150 * p, 700 * p], dur: 0.24, gain: 0.32 * k, rough: 0.75, form: 1.15 });
-    this.noise({ dur: 0.12, gain: 0.05 * k, f: 2800, q: 1.2 });
+    const p = 0.94 + Math.random() * 0.12;
+    this.kok({ f: 520 * p, dur: 0.06, gain: 0.17, k });
+    this.kok({ f: 660 * p, dur: 0.085, gain: 0.2, delay: 0.09, stop: true, k });
   }
 
   // 칼 휘두르는 바람 소리
@@ -159,10 +203,12 @@ export class Sfx {
     this.voice({ f: [480 * p, 880 * p, 560 * p], dur: 0.3, gain: 0.18 * k, delay: 0.33, rough: 0.5 });
   }
 
-  // 쪼기: 작게 "꾸룩" + 부리로 땅을 톡톡 (애니메이션의 두 번 쪼기에 맞춘다)
+  // 쪼기: 두 번 쪼는 동작에 맞춰 띄엄띄엄 "꼬. 꼭." + 부리로 땅을 톡톡
   peck(d = 0) {
     const k = this.near(d);
-    this.voice({ f: [300, 335, 250], dur: 0.1, gain: 0.1 * k, form: 0.9 });
+    const p = 0.94 + Math.random() * 0.12;
+    this.kok({ f: 430 * p, dur: 0.07, gain: 0.15, delay: 0.12, k });
+    this.kok({ f: 450 * p, dur: 0.07, gain: 0.15, delay: 0.47, stop: true, k });
     for (const at of [0.17, 0.52]) {
       this.noise({ dur: 0.018, gain: 0.14 * k, f: 3200, q: 2, delay: at });
       this.tone({ type: 'triangle', f0: 1400, f1: 900, dur: 0.015, gain: 0.05 * k, delay: at });
@@ -175,14 +221,6 @@ export class Sfx {
     const p = 0.85 + Math.random() * 0.3;
     this.noise({ dur: 0.05, gain: 0.32 * k, f: 420 * p, q: 0.6, type: 'lowpass' });
     this.noise({ dur: 0.016, gain: 0.09 * k, f: 2300 * p, q: 1.5 });
-  }
-
-  // 뛰면서 숨찬 "꼭꼭꼭"
-  runCluck(d = 0) {
-    const k = this.near(d);
-    const p = 0.95 + Math.random() * 0.2;
-    const n = 2 + (Math.random() < 0.5 ? 1 : 0);
-    for (let i = 0; i < n; i++) this.voice({ f: [480 * p, 560 * p, 430 * p], dur: 0.05, gain: 0.15 * k, delay: i * 0.085, rough: 0.2 });
   }
 
   beep(hi) {

@@ -691,13 +691,8 @@ function render(dt, now) {
     v.phase += Math.min(moved, 1) * 5.6;
     const stepN = Math.floor(v.phase / Math.PI); // 걸음 위상 반 바퀴 = 한 발
     if (anim === ANIM.RUN && moved > 0.001) {
-      // 뛰는 소리: 발을 디딜 때마다 "탁", 가끔 숨찬 "꼭꼭꼭"
+      // 뛰는 소리: 발을 디딜 때마다 "탁" (닭 울음 없이 달리는 느낌만)
       if (stepN !== v.stepN) sfx.step(dist);
-      v.cluckT = (v.cluckT ?? Math.random() * 0.4) - dt;
-      if (v.cluckT <= 0) {
-        v.cluckT = 0.55 + Math.random() * 0.4;
-        sfx.runCluck(dist);
-      }
       v.puffT -= dt;
       if (v.puffT <= 0) {
         v.puffT = 0.1 + Math.random() * 0.04;
