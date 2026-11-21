@@ -16,7 +16,8 @@ const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.m
 
 export class Game {
   // opts: players(사람+봇 수), ai(AI 닭 수), autoRestart(결과 뒤 자동으로 다음 판), seed,
-  //       level(봇 난이도 'easy' | 'normal' | 'hard'), code(친구 방 코드)
+  //       level(봇 난이도 'easy' | 'normal' | 'hard'), code(친구 방 코드),
+  //       lobby(친구 방: 대기실에서 모였다가 방장이 시작을 누르면 시작, 판이 끝나면 대기실로)
   constructor(opts = {}) {
     this.opts = { players: CFG.PLAYERS, ai: CFG.AI_COUNT, autoRestart: true, ...opts };
     this.rng = mulberry32(opts.seed ?? Math.floor(Math.random() * 2 ** 32));
@@ -25,7 +26,15 @@ export class Game {
     this.tick = 0;
     this.nextPid = 1;
     this.round = 0;
+    this.hostPid = null; // 친구 방의 방장 (처음 들어온 사람, 나가면 다음 사람)
     this.newRound();
+    if (this.opts.lobby) this.phase = 'lobby';
+  }
+
+  // 친구 방: 대기실로 (마을은 새로 만들어 두고, 방장이 시작을 누를 때까지 아무도 못 움직인다)
+  toLobby() {
+    this.newRound();
+    this.phase = 'lobby';
   }
 
   get humanCount() {
@@ -111,6 +120,7 @@ export class Game {
     this.boardDirty = true;
     s.inbox.push({ t: 'hello', pid: s.pid, round: this.round });
     if (this.phase === 'end') s.inbox.push({ t: 'end', rank: this.result });
+    if (!this.slots.some((x) => x.pid === this.hostPid && !x.bot)) this.hostPid = s.pid;
     return s;
   }
 
@@ -138,6 +148,7 @@ export class Game {
     s.name = botName(this.rng, new Set(this.slots.map((x) => x.name)));
     s.inbox = [];
     this.boardDirty = true;
+    if (s.pid === this.hostPid) this.hostPid = this.slots.find((x) => !x.bot)?.pid ?? null; // 방장이 나가면 다음 사람이 방장
   }
 
   // 클라이언트 메시지
@@ -154,6 +165,12 @@ export class Game {
       };
       s.inputs.push(inp);
       if (s.inputs.length > 12) s.inputs.splice(0, s.inputs.length - 12);
+    } else if (m.t === 'start') {
+      // 친구 방: 방장이 시작을 누르면 시작 (빈 자리는 봇이 채운다)
+      if (this.phase === 'lobby' && s.pid === this.hostPid) this.newRound();
+    } else if (m.t === 'again' && this.opts.lobby) {
+      // 친구 방: 결과 화면에서 방장이 누르면 바로 대기실로
+      if (this.phase === 'end' && s.pid === this.hostPid) this.toLobby();
     } else if (m.t === 'again') {
       // 혼자 하기는 잡혀서 관전 중일 때도 바로 새 판
       if (!this.opts.autoRestart && this.phase === 'play' && !this.isAlive(s)) return this.newRound();
@@ -232,7 +249,8 @@ export class Game {
       } else if (this.slots.length >= 2 && this.alivePlayers <= 1) this.finishT = CFG.FINISH_DELAY;
     } else if (this.phase === 'end') {
       this.phaseT -= DT;
-      if (this.phaseT <= 0 && this.opts.autoRestart) this.newRound();
+      if (this.phaseT <= 0 && this.opts.lobby) this.toLobby();
+      else if (this.phaseT <= 0 && this.opts.autoRestart) this.newRound();
     }
     this.simulate(DT);
   }
@@ -456,6 +474,8 @@ export class Game {
     const tl = this.phase === 'play' ? this.timeLeft : this.phaseT;
     const board = this.boardDirty || this.tick % 60 === 0 ? this.board() : null;
     const al = this.alivePlayers; // 남은 플레이어 수 (모두에게)
+    // 친구 방: 방장과 들어온 사람들 (서로 아는 사이라 이름은 숨기지 않는다. 어느 닭인지는 알려 주지 않는다)
+    const lb = this.opts.lobby ? { h: this.hostPid, p: this.slots.filter((x) => !x.bot).map((x) => [x.pid, x.name, x.session ? 1 : 0]) } : null;
     this.boardDirty = false;
     for (const s of this.slots) {
       if (!s.session) continue;
@@ -463,6 +483,7 @@ export class Game {
       const ev = this.events.length || s.inbox.length ? [...this.events, ...s.inbox] : null;
       if (ev) msg.ev = ev;
       if (board) msg.b = board;
+      if (lb) msg.lb = lb;
       s.session.send(msg);
     }
     this.events = [];

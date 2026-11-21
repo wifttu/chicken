@@ -649,6 +649,81 @@ input[type='range'] {
   font-size: 16px;
 }
 
+/* 친구 방 대기실 */
+.roomcode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.roomcode div {
+  display: flex;
+  flex-direction: column;
+}
+.roomcode small {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.roomcode b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: 0.12em;
+  color: var(--yolk);
+  font-variant-numeric: tabular-nums;
+}
+#copyCode {
+  font-size: 14px;
+  padding: 8px 12px;
+}
+#lobbyList .row {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+#lobbyList .tagline {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* 목록만 안에서 스크롤하고 시작·나가기 버튼은 늘 보이게 */
+#lobby .panel {
+  overflow: hidden;
+}
+#lobbyList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+#lobby .row.btns,
+#lobby .roomcode,
+#lobbyNote {
+  flex: none;
+}
+@media (max-height: 480px) {
+  #lobby .panel {
+    gap: 6px;
+    padding: 12px 16px;
+  }
+  #lobby h2 {
+    font-size: 20px;
+  }
+  .roomcode {
+    padding: 4px 12px;
+  }
+  .roomcode b {
+    font-size: 26px;
+  }
+  #lobbyList .row {
+    padding: 4px 8px;
+  }
+  #lobbyNote {
+    margin: 0;
+    font-size: 12px;
+  }
+}
+
 /* 친구 방 코드 */
 #roomChip {
   font-size: 16px;

@@ -283,6 +283,9 @@ function exitGame() {
   S.joined = false;
   clearTimeout(S.dropTimer);
   $('roomChip').hidden = true;
+  $('lobby').hidden = true;
+  S.lobby = null;
+  lobbyKey = '';
   net?.send({ t: 'bye' }); // 일부러 나간다: 서버가 자리를 맡아 두지 않는다
   net?.close();
   net = null;
@@ -336,6 +339,10 @@ function onMessage(m) {
     return;
   }
   if (m.t !== 's') return;
+  if (S.mode === 'game') {
+    S.lobby = m.lb || null;
+    renderLobby(m.ph);
+  }
   const now = performance.now() / 1000;
   const st = m.k / CFG.TICK_RATE;
   const sample = now - st;
@@ -838,7 +845,7 @@ function updateHud(dt, now) {
     $('timer').textContent = fmt(CFG.ROUND_TIME);
   } else {
     S.lastBig = '';
-    $('timer').textContent = S.phase === 'play' ? fmt(Math.max(0, S.tl)) : '0:00';
+    $('timer').textContent = S.phase === 'play' ? fmt(Math.max(0, S.tl)) : S.phase === 'lobby' ? fmt(CFG.ROUND_TIME) : '0:00';
     $('timer').classList.toggle('hurry', S.phase === 'play' && S.tl < 30);
   }
   const me = S.board.find((b) => b.pid === S.pid);
@@ -851,7 +858,7 @@ function updateHud(dt, now) {
   $('cdMask').style.setProperty('--p', left > 0.05 ? `${Math.min(1, left / total) * 360}deg` : '0deg');
   $('stab').classList.toggle('cool', left > 0.05);
   $('pad').classList.toggle('off', !(S.myId && S.phase === 'play'));
-  $('hud').classList.toggle('out', (!S.myId && S.phase === 'play' && S.snaps.length > 0) || S.phase === 'end'); // 잡혔거나 판이 끝났다
+  $('hud').classList.toggle('out', (!S.myId && S.phase === 'play' && S.snaps.length > 0) || S.phase === 'end' || S.phase === 'lobby'); // 잡혔거나 판이 끝났거나 대기실
 }
 
 function renderBoard(el, rows) {
@@ -876,10 +883,54 @@ function showResult(rank) {
   renderBoard($('resultList'), rank);
   $('againBtn').disabled = false;
   $('againBtn').textContent = '▶ 다시 하기';
+  if (S.lobby) {
+    // 친구 방: 방장이 누르면 모두 대기실로, 아니면 잠시 뒤 저절로
+    const host = S.lobby.h === S.pid;
+    $('againBtn').disabled = !host;
+    $('againBtn').textContent = host ? '▶ 대기실로' : '잠시 뒤 대기실로 가요';
+  }
   $('result').hidden = false;
   $('dead').hidden = true;
   if (i === 0) sfx.good();
 }
+
+// ───────────────────────── 친구 방 대기실 ─────────────────────────
+// 방장이 시작을 누를 때까지 모여 있는 곳. 누가 들어왔는지 보이고, 방장만 시작할 수 있다
+let lobbyKey = '';
+function renderLobby(phase) {
+  const on = !!S.lobby && S.online && phase === 'lobby';
+  $('lobby').hidden = !on;
+  if (!on) return;
+  const { h, p } = S.lobby;
+  const host = h === S.pid;
+  const key = JSON.stringify([h, p, S.pid, S.room]);
+  if (key === lobbyKey) return;
+  lobbyKey = key;
+  $('lobbyCode').textContent = S.room || '----';
+  $('lobbyList').innerHTML = p
+    .map(([pid, name, on]) => {
+      const tags = [pid === h ? '방장' : '', pid === S.pid ? '나' : '', on ? '' : '연결 끊김'].filter(Boolean).join(' · ');
+      return `<div class="row${pid === S.pid ? ' me' : ''}"><span class="rank">${pid === h ? '👑' : '🐔'}</span><span class="nm" translate="no">${esc(name)}</span><span class="tagline">${tags}</span></div>`;
+    })
+    .join('');
+  const bots = Math.max(0, CFG.PLAYERS - p.length);
+  const hostName = p.find((q) => q[0] === h)?.[1] || '방장';
+  $('lobbyNote').innerHTML = `<b>${p.length}명</b> 모였어요 (최대 ${CFG.PLAYERS}명).${bots ? ` 시작하면 빈 자리 ${bots}개는 봇이 채워요.` : ''}<br>` + (host ? '친구들이 다 들어오면 <b>시작</b>을 누르세요.' : `방장 <b translate="no">${esc(hostName)}</b> 님이 시작하면 바로 시작해요.`);
+  $('startBtn').hidden = !host;
+}
+$('startBtn').addEventListener('click', () => (sfx.unlock(), sfx.click(), S.link?.send({ t: 'start' })));
+$('lobbyLeave').addEventListener('click', () => exitGame());
+$('copyCode').addEventListener('click', async () => {
+  sfx.click();
+  const url = location.origin + location.pathname;
+  const text = `꼬꼬 스파이 같이 하자! ${url} 에서 온라인 → 친구 방 코드에 ${S.room} 을 넣어 줘`;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('초대 문구를 복사했어요. 친구에게 붙여 넣어 보내세요', 'good');
+  } catch {
+    toast(`방 코드: ${esc(S.room)}`, '');
+  }
+});
 
 // ───────────────────────── 내 기록 ─────────────────────────
 function recordRound(rank) {

@@ -391,6 +391,42 @@ test('온라인: 친구 방은 코드로만 들어가고, 없는 코드면 알�
   assert.equal(d.slot, undefined);
 });
 
+test('친구 방: 대기실에 모였다가 방장만 시작할 수 있고, 판이 끝나면 대기실로 돌아온다', () => {
+  const hub = new Hub();
+  const ga = [];
+  const a = { send: (m) => ga.push(m) };
+  hub.handle(a, { t: 'join', name: '방장', room: 'new' });
+  const g = a.game;
+  const code = ga.find((m) => m.t === 'room').code;
+  const gb = [];
+  const b = { send: (m) => gb.push(m) };
+  hub.handle(b, { t: 'join', name: '친구', room: code });
+  for (let i = 0; i < 30; i++) g.step();
+  assert.equal(g.phase, 'lobby', '방장이 누르기 전에는 시작하지 않는다');
+  g.broadcast();
+  const lb = gb.at(-1).lb;
+  assert.equal(lb.h, a.slot.pid);
+  assert.deepEqual(lb.p.map((p) => p[1]), ['방장', '친구']);
+  hub.handle(b, { t: 'start' });
+  assert.equal(g.phase, 'lobby', '방장이 아니면 시작 못 한다');
+  hub.handle(a, { t: 'start' });
+  assert.equal(g.phase, 'count');
+  assert.equal(g.slots.length, CFG.PLAYERS, '빈 자리는 봇이 채운다');
+  g.endRound();
+  hub.handle(b, { t: 'again' });
+  assert.equal(g.phase, 'end');
+  hub.handle(a, { t: 'again' });
+  assert.equal(g.phase, 'lobby', '방장이 누르면 대기실로');
+  // 방장이 나가면 친구가 방장
+  hub.handle(a, { t: 'bye' });
+  assert.equal(g.hostPid, b.slot.pid);
+  // 결과를 다 보여 주면 저절로 대기실로
+  hub.handle(b, { t: 'start' });
+  g.endRound();
+  for (let i = 0; i <= CFG.TICK_RATE * CFG.END_TIME + 2; i++) g.step();
+  assert.equal(g.phase, 'lobby');
+});
+
 test('혼자 하기 난이도: 어려운 봇이 더 잘 알아챈다', () => {
   const easy = new Game({ seed: 9, level: 'easy' });
   const hard = new Game({ seed: 9, level: 'hard' });

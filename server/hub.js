@@ -51,7 +51,7 @@ export class Hub {
     let g;
     if (room === 'new') {
       const code = this.newCode();
-      g = new Game({ code });
+      g = new Game({ code, lobby: true });
       this.priv.set(code, g);
     } else if (room) {
       g = this.priv.get(String(room));
