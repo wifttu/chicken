@@ -185,8 +185,8 @@ export class Sfx {
   battle(d = 0) {
     const k = this.near(d);
     const p = 0.94 + Math.random() * 0.12;
-    this.kok({ f: 520 * p, dur: 0.06, gain: 0.17, k });
-    this.kok({ f: 660 * p, dur: 0.085, gain: 0.2, delay: 0.09, stop: true, k });
+    this.kok({ f: 520 * p, dur: 0.1, gain: 0.17, k }); // 꼬 (느긋하게)
+    this.kok({ f: 660 * p, dur: 0.13, gain: 0.2, delay: 0.19, stop: true, k }); // 꼭!
   }
 
   // 칼 휘두르는 바람 소리
