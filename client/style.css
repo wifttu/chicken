@@ -649,6 +649,19 @@ input[type='range'] {
   font-size: 16px;
 }
 
+/* 온라인 연결 중 */
+.conn {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 20px;
+  color: #fff;
+  animation: pulse 0.8s infinite alternate;
+}
+.note.err {
+  color: #ff8a92;
+  font-weight: 700;
+}
+
 /* 친구 방 대기실 */
 .roomcode {
   display: flex;

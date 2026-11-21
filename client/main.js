@@ -158,8 +158,11 @@ function startDemo() {
 }
 
 function closeLink() {
-  if (S.link) S.link.close();
+  const l = S.link;
   S.link = null;
+  try {
+    l?.close();
+  } catch {}
 }
 
 function resetMatch() {
@@ -204,7 +207,26 @@ function serverOrigin() {
   return normalizeServer(prefs.server) || normalizeServer(DEFAULT_SERVER);
 }
 
-async function startOnline(room = '') {
+// 온라인: 친구 방 만들기(room 'new') 또는 코드로 들어가기(room '1234').
+// 연결 → 방에 들어가기 요청 → 서버가 방 코드(room)나 오류(err)로 답하면 그때 게임 화면으로 넘어간다.
+// 그동안은 "연결하는 중" 창을 띄우고, 취소할 수 있다.
+let joining = false;
+function readName() {
+  return ($('nameIn').value || '').trim().slice(0, 12) || prefs.name || '';
+}
+function showOnlineError(msg) {
+  openSheet('onlineSheet');
+  $('onlineErr').textContent = msg;
+  $('onlineErr').hidden = false;
+}
+function stopNet() {
+  const n = net;
+  net = null;
+  try {
+    n?.close();
+  } catch {}
+}
+async function startOnline(room) {
   const origin = serverOrigin();
   if (!origin) {
     openSheet('settings');
@@ -212,51 +234,94 @@ async function startOnline(room = '') {
     $('serverNote').textContent = '온라인으로 하려면 게임 서버 주소가 필요해요.';
     return;
   }
-  closeLink();
-  $('onlineState').textContent = '연결하는 중…';
-  net?.close();
-  net = new Net({
+  if (joining) return; // 이미 연결하는 중
+  joining = true;
+  $('onlineErr').hidden = true;
+  openSheet('connecting');
+  $('connMsg').textContent = '서버에 연결하는 중…';
+  stopNet();
+  const n = new Net({
     url: () => origin.replace(/^http/, 'ws') + '/ws',
     health: () => origin + '/healthz',
-    onMessage,
-    onState: (st) => {
-      $('onlineState').textContent = { connecting: '연결하는 중…', waking: '서버 깨우는 중… (최대 1분)', open: '연결됨', closed: '끊어졌어요', failed: '연결 실패' }[st] || '';
-      if (!(S.mode === 'game' && S.online)) return;
-      if (st === 'closed') {
-        // 잠깐 끊겼을 수 있다: 20초 동안 다시 붙어 본다 (서버가 그동안 내 닭을 맡아 둔다)
-        toast('연결이 끊겼어요. 다시 연결하는 중…', 'bad');
-        clearTimeout(S.dropTimer);
-        S.dropTimer = setTimeout(() => {
-          if (S.online && S.mode === 'game' && !net?.ready) {
-            toast('다시 연결하지 못했어요', 'bad');
-            exitGame();
-          }
-        }, 20000);
-      } else if (st === 'open' && S.joined) {
-        clearTimeout(S.dropTimer);
-        S.resync = true;
-        net.send({ t: 'join', name: S.name, tok: TOK, room: S.room });
-        toast('다시 연결됐어요', 'good');
-      } else if (st === 'failed') {
-        toast('서버와 연결이 끊어졌어요', 'bad');
-        setTimeout(() => S.online && S.mode === 'game' && exitGame(), 1500);
-      }
-    },
+    onMessage: (m) => onNetMessage(n, m),
+    onState: (st) => onNetState(n, st),
   });
-  const ok = await net.open();
-  if (!ok) return;
-  enterGame();
-  S.online = true;
-  S.room = room === 'new' ? '' : room;
-  S.link = { send: (m) => net.send(m), close: () => net.close() };
-  net.send({ t: 'join', name: S.name, tok: TOK, room });
-  S.joined = true;
+  net = n;
+  const ok = await n.open();
+  if (net !== n || !joining) return; // 취소했다
+  if (!ok) {
+    joining = false;
+    stopNet();
+    showOnlineError('서버에 연결하지 못했어요. 인터넷을 확인하고 잠시 뒤 다시 해 주세요.');
+    return;
+  }
+  $('connMsg').textContent = room === 'new' ? '방을 만드는 중…' : `${room} 방에 들어가는 중…`;
+  S.name = readName();
+  n.send({ t: 'join', name: S.name, tok: TOK, room });
+}
+
+function onNetMessage(n, m) {
+  if (net !== n) return; // 지난 연결
+  if (m.t === 'room') {
+    S.room = m.code || '';
+    if (joining) {
+      // 방에 들어갔다: 게임 화면으로
+      joining = false;
+      closeLink(); // 메뉴 뒤 구경용 게임을 멈춘다
+      enterGame();
+      S.online = true;
+      S.joined = true;
+      S.link = { send: (x) => n.send(x), close: () => n.close() };
+    }
+    $('roomChip').hidden = !S.room;
+    $('roomChip').textContent = `🔑 방 ${S.room}`;
+    return;
+  }
+  if (m.t === 'err') {
+    if (joining) {
+      joining = false;
+      stopNet();
+      showOnlineError(m.m);
+    } else {
+      toast(esc(m.m), 'bad');
+      exitGame();
+    }
+    return;
+  }
+  if (S.online) onMessage(m);
+}
+
+function onNetState(n, st) {
+  if (net !== n) return;
+  const label = { connecting: '연결하는 중…', waking: '서버 깨우는 중… (최대 1분)', open: '연결됨', closed: '끊어졌어요', failed: '연결 실패' }[st] || '';
+  $('onlineState').textContent = label;
+  if (joining && (st === 'connecting' || st === 'waking')) $('connMsg').textContent = st === 'waking' ? '서버 깨우는 중… (최대 1분)' : '서버에 연결하는 중…';
+  if (!(S.mode === 'game' && S.online)) return;
+  if (st === 'closed') {
+    // 잠깐 끊겼을 수 있다: 20초 동안 다시 붙어 본다 (서버가 그동안 내 닭을 맡아 둔다)
+    toast('연결이 끊겼어요. 다시 연결하는 중…', 'bad');
+    clearTimeout(S.dropTimer);
+    S.dropTimer = setTimeout(() => {
+      if (S.online && S.mode === 'game' && !net?.ready) {
+        toast('다시 연결하지 못했어요', 'bad');
+        exitGame();
+      }
+    }, 20000);
+  } else if (st === 'open' && S.joined) {
+    clearTimeout(S.dropTimer);
+    S.resync = true;
+    n.send({ t: 'join', name: S.name, tok: TOK, room: S.room });
+    toast('다시 연결됐어요', 'good');
+  } else if (st === 'failed') {
+    toast('서버와 연결이 끊어졌어요', 'bad');
+    setTimeout(() => S.online && S.mode === 'game' && exitGame(), 1500);
+  }
 }
 
 function enterGame() {
   sfx.unlock();
   S.mode = 'game';
-  S.name = ($('nameIn').value || '').trim().slice(0, 12) || prefs.name || '';
+  S.name = readName();
   prefs.name = S.name;
   savePrefs();
   resetMatch();
@@ -285,10 +350,11 @@ function exitGame() {
   $('roomChip').hidden = true;
   $('lobby').hidden = true;
   S.lobby = null;
+  S.room = '';
   lobbyKey = '';
+  joining = false;
   net?.send({ t: 'bye' }); // 일부러 나간다: 서버가 자리를 맡아 두지 않는다
-  net?.close();
-  net = null;
+  stopNet();
   $('hud').hidden = true;
   hideSheets();
   $('result').hidden = true; // 결과 화면에서 "나가기"를 눌렀을 때 메뉴를 가리지 않게
@@ -327,17 +393,6 @@ for (const ev of ['pointerup', 'touchend']) addEventListener(ev, () => S.mode ==
 
 // ───────────────────────── 메시지 ─────────────────────────
 function onMessage(m) {
-  if (m.t === 'room') {
-    S.room = m.code || '';
-    $('roomChip').hidden = !S.room;
-    $('roomChip').textContent = `🔑 방 ${S.room}`;
-    return;
-  }
-  if (m.t === 'err') {
-    toast(esc(m.m), 'bad');
-    exitGame();
-    return;
-  }
   if (m.t !== 's') return;
   if (S.mode === 'game') {
     S.lobby = m.lb || null;
@@ -999,7 +1054,7 @@ function openSheet(id) {
   $(id).hidden = false;
 }
 function hideSheets() {
-  for (const id of ['help', 'settings', 'board', 'confirm', 'install', 'onlineSheet', 'stats']) $(id).hidden = true;
+  for (const id of ['help', 'settings', 'board', 'confirm', 'install', 'onlineSheet', 'stats', 'connecting']) $(id).hidden = true;
 }
 for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => (sfx.click(), (b.closest('.sheet').hidden = true)));
 
@@ -1009,17 +1064,25 @@ $('onlineBtn').addEventListener('click', () => {
   sfx.unlock();
   sfx.click();
   if (!serverOrigin()) return startOnline(); // 서버 주소가 없으면 설정으로 안내
+  $('onlineErr').hidden = true;
   openSheet('onlineSheet');
 });
-$('joinAny').addEventListener('click', () => (hideSheets(), startOnline('')));
-$('makeRoom').addEventListener('click', () => (hideSheets(), startOnline('new')));
+$('makeRoom').addEventListener('click', () => startOnline('new'));
+$('codeIn').addEventListener('keydown', (e) => e.key === 'Enter' && $('joinCode').click());
+$('connCancel').addEventListener('click', () => {
+  joining = false;
+  stopNet();
+  hideSheets();
+  $('onlineState').textContent = onlineLabel();
+});
 $('joinCode').addEventListener('click', () => {
   const code = $('codeIn').value.replace(/\D/g, '').slice(0, 4);
   if (code.length !== 4) {
     $('codeIn').focus();
-    return toast('코드 4자리를 넣어 주세요', 'bad');
+    $('onlineErr').textContent = '코드 4자리를 넣어 주세요.';
+    $('onlineErr').hidden = false;
+    return;
   }
-  hideSheets();
   startOnline(code);
 });
 $('statsBtn').addEventListener('click', () => (sfx.unlock(), sfx.click(), renderStats(), openSheet('stats')));

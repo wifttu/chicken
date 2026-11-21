@@ -77,7 +77,7 @@
         <input id="nameIn" maxlength="12" placeholder="닭 이름 (비우면 자동)" autocomplete="off" />
         <div class="btns">
           <button id="soloBtn" class="primary">혼자 하기<small id="soloState">봇 7마리와 한 판</small></button>
-          <button id="onlineBtn">온라인<small id="onlineState">확인하는 중…</small></button>
+          <button id="onlineBtn">친구와 온라인<small id="onlineState">확인하는 중…</small></button>
         </div>
         <div class="links">
           <button id="helpBtn">게임 방법</button>
@@ -152,16 +152,25 @@
 
     <section id="onlineSheet" class="sheet" hidden>
       <div class="panel small">
-        <h2>온라인</h2>
-        <button id="joinAny" class="primary">아무 방에 들어가기</button>
-        <button id="makeRoom">친구 방 만들기</button>
-        <p class="note">방을 만들면 4자리 코드가 화면 위에 떠요. 친구에게 알려 주세요.</p>
-        <label for="codeIn">친구 방 코드</label>
+        <h2>친구와 온라인</h2>
+        <button id="makeRoom" class="primary">친구 방 만들기</button>
+        <p class="note">방을 만들면 대기실로 가요. 4자리 코드를 친구에게 알려 주세요.</p>
+        <label for="codeIn">친구가 만든 방에 들어가기</label>
         <div class="row">
           <input id="codeIn" inputmode="numeric" maxlength="4" placeholder="예: 1234" autocomplete="off" />
           <button id="joinCode">들어가기</button>
         </div>
+        <p id="onlineErr" class="note err" hidden></p>
         <button data-close>닫기</button>
+      </div>
+    </section>
+
+    <section id="connecting" class="sheet" hidden>
+      <div class="panel small">
+        <h2>온라인</h2>
+        <p id="connMsg" class="conn">서버에 연결하는 중…</p>
+        <p class="note">무료 서버라 한동안 아무도 없으면 잠들어 있어요. 처음에는 깨어나는 데 1분쯤 걸릴 수 있어요.</p>
+        <button id="connCancel">취소</button>
       </div>
     </section>
 
