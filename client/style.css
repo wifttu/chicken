@@ -624,6 +624,30 @@ input[type='range'] {
   font-size: 16px;
 }
 
+/* 관전: 살아 있는 플레이어 머리 위 이름 */
+#tags {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+#tags .tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(24, 22, 46, 0.72);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  will-change: transform;
+}
+#tags .tag.on {
+  background: var(--yolk);
+  color: var(--ink);
+}
+
 /* 조이스틱 */
 #stick {
   position: absolute;

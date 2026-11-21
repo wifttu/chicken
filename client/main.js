@@ -504,6 +504,8 @@ function render(dt, now) {
   chickens.begin();
   let killerPos = null;
   let specPos = null;
+  tagHeads.clear();
+  const specIds = new Set(S.spectating ? S.spec.map((p) => p[0]) : []);
   for (const [id, e] of ents) {
     let v = vis.get(id);
     let { x, z, yaw, code } = e;
@@ -563,6 +565,7 @@ function render(dt, now) {
     }
     if (id === S.killerId && !S.myId && !S.spectating && anim !== ANIM.DEAD) killerPos = { x, z, head: head?.clone() };
     if (S.spectating && id === S.specId && anim !== ANIM.DEAD) specPos = { x, z };
+    if (S.spectating && head && anim !== ANIM.DEAD && specIds.has(id)) tagHeads.set(id, head.clone());
   }
   // 사라진 닭: 쓰러진 닭이 치워질 때 연기
   for (const [id, v] of vis) {
@@ -595,6 +598,7 @@ function render(dt, now) {
   }
 
   updateCamera(dt, now, ents, killerPos, specPos);
+  drawTags();
   world.update(dt);
   fx.update(dt, now);
   renderer.render(scene, camera);
@@ -659,6 +663,37 @@ function updateCamera(dt, now, ents, killerPos, specPos) {
   } else camPos.lerp(desired, 1 - Math.exp(-dt * 14));
   camera.position.copy(camPos);
   camera.lookAt(camTarget.x, camTarget.y + 0.35, camTarget.z);
+}
+
+// ───────────────────────── 관전: 머리 위 이름 ─────────────────────────
+// 잡힌 사람만 서버에서 플레이어 목록을 받으므로, 이름표도 관전할 때만 보인다
+const tagHeads = new Map();
+const tagEls = [];
+const _tp = new THREE.Vector3();
+function drawTags() {
+  const box = $('tags');
+  let n = 0;
+  for (const [id, h] of tagHeads) {
+    const p = S.spec.find((q) => q[0] === id);
+    if (!p) continue;
+    _tp.set(h.x, h.y + 0.35, h.z).project(camera);
+    if (_tp.z > 1 || Math.abs(_tp.x) > 1.2 || Math.abs(_tp.y) > 1.2) continue;
+    let el = tagEls[n];
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tag';
+      box.appendChild(el);
+      tagEls.push(el);
+    }
+    n++;
+    if (el.textContent !== p[1]) el.textContent = p[1];
+    el.classList.toggle('on', id === S.specId);
+    el.hidden = false;
+    const x = ((_tp.x + 1) / 2) * innerWidth;
+    const y = ((1 - _tp.y) / 2) * innerHeight;
+    el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+  }
+  for (let i = n; i < tagEls.length; i++) tagEls[i].hidden = true;
 }
 
 // ───────────────────────── HUD ─────────────────────────
