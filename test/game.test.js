@@ -18,6 +18,10 @@ function withHuman(opts = {}) {
   return { g, s, got };
 }
 const entOf = (g, s) => g.ents.get(s.ent);
+// 찌른 뒤 칼이 쭉 나가 맞을 때까지
+const hit = (g) => {
+  for (let i = 0; i <= Math.ceil(CFG.STAB_HIT * CFG.TICK_RATE); i++) g.step();
+};
 const aiNear = (g, e) => [...g.ents.values()].find((o) => !o.slot && o.alive && o !== e);
 // a 를 e 바로 앞에 세운다
 function putInFront(e, a, d = 1) {
@@ -68,7 +72,7 @@ test('AI 를 찔러도 점수는 그대로, 아무 표시도 없음, 칼만 늦�
   putInFront(e, a);
   s.score = 2;
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.equal(a.alive, false);
   assert.equal(s.score, 2, '점수를 깎지 않는다');
   assert.equal(s.aiKills, 1);
@@ -91,7 +95,7 @@ test('데스매치: 플레이어를 찌르면 +1점, 잡힌 쪽은 다시 태어
   const v = entOf(g, vs);
   putInFront(e, v, 1.2);
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.equal(v.alive, false);
   assert.equal(s.score, 1);
   assert.equal(vs.deaths, 1);
@@ -147,17 +151,17 @@ test('뒤나 멀리 있는 닭은 찔리지 않고, 카운트다운 중에는 �
   const a = aiNear(g, e);
   putInFront(e, a);
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.equal(a.alive, true, '카운트다운');
   play(g);
   putInFront(e, a, -1);
   g.handle(s, { t: 'in', s: 2, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.equal(a.alive, true, '등 뒤');
-  for (let i = 0; i < 30; i++) g.step();
+  for (let i = 0; i < 40; i++) g.step();
   putInFront(e, a, CFG.STAB_RANGE + 0.4);
   g.handle(s, { t: 'in', s: 3, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.equal(a.alive, true, '너무 멀다');
 });
 
@@ -170,7 +174,7 @@ test('닭이 잡히면 근처 AI 닭이 놀라 걸어서 달아난다 (AI 는 �
   ais[1].x = e.x + 2;
   ais[1].z = e.z;
   g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
-  g.step();
+  hit(g);
   assert.ok(ais[1].panicT > 0);
   const x0 = ais[1].x;
   for (let i = 0; i < 10; i++) g.step();
@@ -223,6 +227,30 @@ test('찌르면 1초 동안 그 자리에 멈춰 칼을 한 번 찌르고, 그�
   g.step();
   assert.ok(e.x > x0, '1초가 지나면 다시 움직인다');
   assert.notEqual(g.animOf(e) & 7, ANIM.STAB);
+});
+
+test('칼은 누른 순간이 아니라 쭉 나가는 순간에 맞는다 (그 사이에 비켜나면 빗나간다)', () => {
+  const { g, s } = withHuman();
+  play(g);
+  const e = entOf(g, s);
+  const a = aiNear(g, e);
+  putInFront(e, a);
+  g.handle(s, { t: 'in', s: 1, x: 0, z: 0, a: ACT.STAB });
+  g.step();
+  assert.equal(a.alive, true, '아직 칼을 젖히는 중');
+  hit(g);
+  assert.equal(a.alive, false);
+  // 젖히는 동안 비켜나면 빗나간다 (멈춤과 AI 를 찌른 벌칙이 풀릴 때까지 3초 기다린다)
+  let seq = 1;
+  for (let i = 0; i < CFG.TICK_RATE * 3; i++) g.handle(s, { t: 'in', s: ++seq, x: 0, z: 0 }), g.step();
+  const b = aiNear(g, e);
+  putInFront(e, b);
+  g.handle(s, { t: 'in', s: ++seq, x: 0, z: 0, a: ACT.STAB });
+  g.step();
+  assert.equal(e.act, ACT.STAB, '두 번째 찌르기가 시작됐다');
+  putInFront(e, b, 3);
+  hit(g);
+  assert.equal(b.alive, true);
 });
 
 test('휴대폰 예측과 서버가 어긋나지 않는다 (입력이 늦게 오거나 몰려 와도)', () => {

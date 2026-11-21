@@ -272,6 +272,11 @@ export class Game {
   }
 
   tickTimers(e, dt) {
+    // 칼이 쭉 나가는 순간에 맞는다
+    if (e.act === ACT.STAB && !e.struck && e.actT - dt <= CFG.STAB_TIME - CFG.STAB_HIT + 1e-6) {
+      e.struck = true;
+      this.strike(e);
+    }
     // 동작 모양은 시간으로 끝낸다 (찌르기 멈춤 자체는 입력 수로 센다: 입력이 끊긴 사람도 칼을 내민 채 굳지 않게)
     if (e.actT > 0 && (e.actT -= dt) <= 0) e.act = ACT.NONE;
     e.cd = Math.max(0, e.cd - dt);
@@ -295,12 +300,17 @@ export class Game {
     stepChicken(e, inp, dt);
   }
 
-  // 칼 찌르기: 앞쪽 부채꼴 안에서 가장 가까운 닭 하나
+  // 찌르기 시작: 멈추고 칼을 젖힌다. 맞는 건 STAB_HIT 뒤 (strike)
   stab(e) {
     e.act = ACT.STAB;
     e.actT = CFG.STAB_TIME;
     e.lockN = STAB_TICKS;
+    e.struck = false;
     e.sus += 4; // 칼을 휘두르는 건 플레이어뿐
+  }
+
+  // 칼끝: 앞쪽 부채꼴 안에서 가장 가까운 닭 하나
+  strike(e) {
     const fx = Math.sin(e.yaw);
     const fz = Math.cos(e.yaw);
     let best = null;

@@ -118,6 +118,7 @@ const S = {
   camSnap: true,
 };
 const vis = new Map(); // id → 화면용 상태
+const killedBy = new Map(); // 잡힌 이름 → 잡은 이름 (이번 판)
 let frameNo = 0;
 
 // ───────────────────────── 연결 ─────────────────────────
@@ -151,8 +152,10 @@ function resetMatch() {
   S.killerId = null;
   S.spec = [];
   S.specId = null;
+  S.specName = '';
   S.spectating = false;
   S.deadAt = 0;
+  killedBy.clear();
   S.myAct = 0;
   S.camSnap = true;
   vis.clear();
@@ -212,6 +215,7 @@ function enterGame() {
   resetMatch();
   $('menu').hidden = true;
   $('hud').hidden = false;
+  $('hint').textContent = MOBILE ? '왼쪽을 끌어 걷고, 오른쪽을 끌어 둘러보세요' : 'WASD 걷기 · 마우스 끌기 둘러보기 · Space 찌르기 · Shift 달리기';
   $('hint').hidden = false;
   setTimeout(() => ($('hint').hidden = true), 7000);
   input.enabled = true;
@@ -335,6 +339,7 @@ function onEvent(ev) {
   switch (ev.t) {
     case 'feed':
       addFeed(ev.k, ev.v);
+      if (ev.v) killedBy.set(ev.v, ev.k); // 관전: 보던 닭이 잡히면 범인으로 넘어간다
       break;
     case 'oops':
       toast(`AI 였어요 · 칼을 ${CFG.PENALTY_CD}초 동안 못 써요`, 'bad');
@@ -765,10 +770,12 @@ function updateSpectate(now) {
   $('spec').hidden = !on;
   if (!on) return;
   if (!S.spec.some((p) => p[0] === S.specId)) {
-    // 보던 닭이 잡혔으면 남은 사람 중 첫 번째로
-    S.specId = S.spec[0][0];
+    // 보던 닭이 잡혔으면 그 닭을 잡은 닭으로 (모르면 남은 사람 중 첫 번째)
+    const killer = killedBy.get(S.specName);
+    S.specId = (S.spec.find((q) => q[1] === killer) || S.spec[0])[0];
   }
   const p = S.spec.find((q) => q[0] === S.specId);
+  S.specName = p[1];
   $('specName').textContent = p[1];
   $('specInfo').textContent = `🔪 ${p[2]} · ${S.spec.indexOf(p) + 1}/${S.spec.length}`;
   $('specAgain').hidden = S.online;

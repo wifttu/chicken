@@ -212,9 +212,11 @@ export class ChickenView {
     } else if (a === ANIM.STAB) {
       // 제자리에 멈춰 서서 칼 든 오른팔로 한 번 찌른다: 살짝 젖혔다가 앞으로 쭉, 잠깐 그대로, 천천히 거둔다
       const end = CFG.STAB_TIME;
-      if (t < 0.1) armR = 0.6 * ease(t / 0.1);
-      else if (t < 0.25) armR = 0.6 - 2.2 * ease((t - 0.1) / 0.15);
+      const hit = CFG.STAB_HIT; // 이 순간 칼끝이 가장 멀리 나간다 (서버가 맞히는 순간)
+      if (t < hit * 0.4) armR = 0.6 * ease(t / (hit * 0.4));
+      else if (t < hit) armR = 0.6 - 2.2 * ease((t - hit * 0.4) / (hit * 0.6));
       else if (t < end - 0.3) armR = -1.6;
+      // (end - 0.3 부터 천천히 거둔다)
       else armR = -1.6 * (1 - ease((t - (end - 0.3)) / 0.3));
       const k = Math.max(0, -armR / 1.6);
       knifeA = 0.75 + 0.75 * k;
